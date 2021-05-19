@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/iot-for-tillgenglighet/messaging-golang/pkg/messaging"
-	"github.com/iot-for-tillgenglighet/messaging-golang/pkg/messaging/telemetry"
+	"github.com/diwise/messaging-golang/pkg/messaging"
+	"github.com/diwise/messaging-golang/pkg/messaging/telemetry"
 	"github.com/streadway/amqp"
 
 	log "github.com/sirupsen/logrus"

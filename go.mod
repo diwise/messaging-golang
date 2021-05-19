@@ -1,4 +1,4 @@
-module github.com/iot-for-tillgenglighet/messaging-golang
+module github.com/diwise/messaging-golang
 
 go 1.14
 
