@@ -2,9 +2,8 @@ package messaging
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -37,15 +36,15 @@ func NewPingCommand() CommandMessage {
 //are received
 func NewPingCommandHandler(ctx Context) CommandHandler {
 	return func(wrapper CommandMessageWrapper) error {
-		ping := &PingCommand{}
-		err := json.Unmarshal(wrapper.Body(), ping)
+		ping := PingCommand{}
+		_ = json.Unmarshal(wrapper.Body(), &ping)
 
-		err = wrapper.RespondWith(NewPongResponse(*ping))
+		err := wrapper.RespondWith(NewPongResponse(ping))
 		if err != nil {
-			log.Error("Failed to publish a pong response to ourselves! : " + err.Error())
+			return fmt.Errorf("failed to publish a pong response to ourselves! : %s", err.Error())
 		}
 
-		return err
+		return nil
 	}
 }
 

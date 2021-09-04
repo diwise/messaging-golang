@@ -12,23 +12,24 @@ import (
 )
 
 func messageHandler(message amqp.Delivery) {
-	log.Info("Message received from queue: " + string(message.Body))
+	log.Info("message received from queue: " + string(message.Body))
 	msg := &telemetry.Temperature{}
 
 	err := json.Unmarshal(message.Body, msg)
 	if err != nil {
-		log.Error("Failed to unmarshal message: " + err.Error())
+		log.Error("failed to unmarshal message: " + err.Error())
 	}
 }
 
 func main() {
 
-	log.Info("Starting up ...")
+	log.Info("starting up ...")
 
 	serviceName := "messaging-golang-test"
 	config := messaging.LoadConfiguration(serviceName)
 
 	messenger, _ := messaging.Initialize(config)
+	defer messenger.Close()
 
 	testMessage := &telemetry.Temperature{
 		Temp: 37.0,
@@ -39,5 +40,4 @@ func main() {
 
 	time.Sleep(5 * time.Second)
 
-	defer messenger.Close()
 }

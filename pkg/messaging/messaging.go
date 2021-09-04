@@ -74,7 +74,7 @@ func (ctx *rabbitMQContext) NoteToSelf(command CommandMessage) error {
 func (ctx *rabbitMQContext) SendCommandTo(command CommandMessage, key string) error {
 	messageBytes, err := json.MarshalIndent(command, "", " ")
 	if err != nil {
-		return &Error{"Unable to marshal command to json!", err}
+		return &Error{"unable to marshal command to json!", err}
 	}
 
 	err = ctx.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
@@ -83,7 +83,7 @@ func (ctx *rabbitMQContext) SendCommandTo(command CommandMessage, key string) er
 		Body:        messageBytes,
 	})
 	if err != nil {
-		return &Error{"Failed to publish a command to " + key + "!", err}
+		return &Error{"failed to publish a command to " + key + "!", err}
 	}
 
 	return nil
@@ -93,7 +93,7 @@ func (ctx *rabbitMQContext) SendCommandTo(command CommandMessage, key string) er
 func (ctx *rabbitMQContext) SendResponseTo(response CommandMessage, key string) error {
 	messageBytes, err := json.MarshalIndent(response, "", " ")
 	if err != nil {
-		return &Error{"Unable to marshal response to json!", err}
+		return &Error{"unable to marshal response to json!", err}
 	}
 
 	err = ctx.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
@@ -101,7 +101,7 @@ func (ctx *rabbitMQContext) SendResponseTo(response CommandMessage, key string) 
 		Body:        messageBytes,
 	})
 	if err != nil {
-		return &Error{"Failed to publish a command to " + key + "!", err}
+		return &Error{"failed to publish a command to " + key + "!", err}
 	}
 
 	return nil
@@ -119,7 +119,7 @@ type TopicMessage interface {
 func (ctx *rabbitMQContext) PublishOnTopic(message TopicMessage) error {
 	messageBytes, err := json.MarshalIndent(message, "", " ")
 	if err != nil {
-		return &Error{"Unable to marshal telemetry message to json!", err}
+		return &Error{"unable to marshal telemetry message to json!", err}
 	}
 
 	err = ctx.channel.Publish(topicExchange, message.TopicName(), false, false,
@@ -222,7 +222,7 @@ func LoadConfiguration(serviceName string) Config {
 func Initialize(cfg Config) (Context, error) {
 
 	if cfg.Host == "" {
-		log.Info("Host name empty, returning mocked context instead.")
+		log.Info("host name empty, returning mocked context instead.")
 		return &mockedContext{}, nil
 	}
 
@@ -277,9 +277,9 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 		nil,   //arguments
 	)
 	if err != nil {
-		log.Fatal("Failed to declare a queue: " + err.Error())
+		log.Fatal("failed to declare a queue: " + err.Error())
 	}
-	log.Infof("Declared topic subscription queue '%s'.", queue.Name)
+	log.Infof("declared topic subscription queue '%s'.", queue.Name)
 
 	err = ctx.channel.QueueBind(
 		queue.Name,
@@ -289,9 +289,9 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 		nil,
 	)
 	if err != nil {
-		log.Fatal("Failed to bind a queue: " + err.Error())
+		log.Fatal("failed to bind a queue: " + err.Error())
 	}
-	log.Infof("Successfully bound to queue '%s'.", queue.Name)
+	log.Infof("successfully bound to queue '%s'.", queue.Name)
 
 	messagesFromQueue, err := ctx.channel.Consume(
 		queue.Name, //queue
@@ -303,9 +303,9 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 		nil,        //args
 	)
 	if err != nil {
-		log.Fatal("Failed to register a consumer: " + err.Error())
+		log.Fatal("failed to register a consumer: " + err.Error())
 	}
-	log.Infof("Successfully registered as a consumer of '%s'.", queue.Name)
+	log.Infof("successfully registered as a consumer of '%s'.", queue.Name)
 
 	go func() {
 		for msg := range messagesFromQueue {
@@ -318,13 +318,13 @@ func createMessageQueueChannel(ctx *rabbitMQContext) (*rabbitMQContext, error) {
 	connectionString := fmt.Sprintf("amqp://%s:%s@%s:5672/", ctx.cfg.User, ctx.cfg.Password, ctx.cfg.Host)
 	conn, err := amqp.Dial(connectionString)
 	if err != nil {
-		return nil, &Error{"Unable to connect to message queue!", err}
+		return nil, &Error{"unable to connect to message queue!", err}
 	}
 
 	amqpChannel, err := conn.Channel()
 
 	if err != nil {
-		return nil, &Error{"Unable to create an amqp channel to message queue!", err}
+		return nil, &Error{"unable to create an amqp channel to message queue!", err}
 	}
 
 	ctx.connection = conn
@@ -333,7 +333,7 @@ func createMessageQueueChannel(ctx *rabbitMQContext) (*rabbitMQContext, error) {
 
 	go func() {
 		for evt := range ctx.connectionClosedError {
-			log.Fatal("Connection error: " + evt.Error())
+			log.Fatal("connection error: " + evt.Error())
 		}
 	}()
 
@@ -344,7 +344,7 @@ func createCommandExchange(ctx *rabbitMQContext) error {
 	err := ctx.channel.ExchangeDeclare(commandExchange, amqp.ExchangeDirect, false, false, false, false, nil)
 
 	if err != nil {
-		err = &Error{"Unable to declare command exchange " + commandExchange + "!", err}
+		err = &Error{"unable to declare command exchange " + commandExchange + "!", err}
 	}
 
 	return err
@@ -354,7 +354,7 @@ func createTopicExchange(ctx *rabbitMQContext) error {
 	err := ctx.channel.ExchangeDeclare(topicExchange, amqp.ExchangeTopic, false, false, false, false, nil)
 
 	if err != nil {
-		err = &Error{"Unable to declare topic exchange " + topicExchange + "!", err}
+		err = &Error{"unable to declare topic exchange " + topicExchange + "!", err}
 	}
 
 	return err
@@ -370,28 +370,28 @@ func createCommandAndResponseQueues(ctx *rabbitMQContext) error {
 
 	commandQueue, err := ctx.channel.QueueDeclare(serviceName, false, false, false, false, nil)
 	if err != nil {
-		return &Error{"Failed to declare command queue for " + serviceName + "!", err}
+		return &Error{"failed to declare command queue for " + serviceName + "!", err}
 	}
 
 	err = ctx.channel.QueueBind(commandQueue.Name, serviceName, commandExchange, false, nil)
 	if err != nil {
-		return &Error{"Failed to bind command queue " + commandQueue.Name + " to exchange " + commandExchange + "!", err}
+		return &Error{"failed to bind command queue " + commandQueue.Name + " to exchange " + commandExchange + "!", err}
 	}
 
 	responseQueue, err := ctx.channel.QueueDeclare("", false, true, true, false, nil)
 	if err != nil {
-		return &Error{"Failed to declare response queue for " + serviceName + "!", err}
+		return &Error{"failed to declare response queue for " + serviceName + "!", err}
 	}
 
 	err = ctx.channel.QueueBind(responseQueue.Name, responseQueue.Name, commandExchange, false, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to bind response queue %s to exchange %s!", responseQueue.Name, commandExchange)
+		msg := fmt.Sprintf("failed to bind response queue %s to exchange %s!", responseQueue.Name, commandExchange)
 		return &Error{msg, err}
 	}
 
 	commands, err := ctx.channel.Consume(commandQueue.Name, "command-consumer", false, false, false, false, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Unable to start consuming commands from %s!", commandQueue.Name)
+		msg := fmt.Sprintf("unable to start consuming commands from %s!", commandQueue.Name)
 		return &Error{msg, err}
 	}
 
@@ -399,7 +399,7 @@ func createCommandAndResponseQueues(ctx *rabbitMQContext) error {
 
 	go func() {
 		for cmd := range commands {
-			log.Info("Received command: " + string(cmd.Body))
+			log.Info("received command: " + string(cmd.Body))
 
 			handler, ok := ctx.commandHandlers[cmd.ContentType]
 			if ok {
@@ -412,7 +412,7 @@ func createCommandAndResponseQueues(ctx *rabbitMQContext) error {
 
 	responses, err := ctx.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Unable to start consuming responses from %s!", responseQueue.Name)
+		msg := fmt.Sprintf("unable to start consuming responses from %s!", responseQueue.Name)
 		return &Error{msg, err}
 	}
 
@@ -420,12 +420,12 @@ func createCommandAndResponseQueues(ctx *rabbitMQContext) error {
 
 	err = ctx.NoteToSelf(NewPingCommand())
 	if err != nil {
-		return &Error{"Failed to publish a ping command to ourselves!", err}
+		return &Error{"failed to publish a ping command to ourselves!", err}
 	}
 
 	go func() {
 		for response := range responses {
-			log.Info("Received response: " + string(response.Body))
+			log.Info("received response: " + string(response.Body))
 			response.Ack(true)
 		}
 	}()
