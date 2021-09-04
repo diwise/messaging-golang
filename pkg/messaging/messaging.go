@@ -223,7 +223,7 @@ func Initialize(cfg Config) (Context, error) {
 
 	if cfg.Host == "" {
 		log.Info("host name empty, returning mocked context instead.")
-		return &mockedContext{}, nil
+		return &ContextMock{}, nil
 	}
 
 	var connClosedError = make(chan *amqp.Error)
