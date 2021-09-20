@@ -1,6 +1,8 @@
 package messaging
 
-import "github.com/streadway/amqp"
+import (
+	"github.com/streadway/amqp"
+)
 
 type amqpDeliveryWrapper struct {
 	ctx Context

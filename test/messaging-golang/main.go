@@ -8,25 +8,28 @@ import (
 	"github.com/diwise/messaging-golang/pkg/messaging/telemetry"
 	"github.com/streadway/amqp"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
-func messageHandler(message amqp.Delivery) {
-	log.Info("message received from queue: " + string(message.Body))
+func messageHandler(message amqp.Delivery, logger zerolog.Logger) {
+	logger.Info().Str("body", string(message.Body)).Msg("message received from queue")
 	msg := &telemetry.Temperature{}
 
 	err := json.Unmarshal(message.Body, msg)
 	if err != nil {
-		log.Error("failed to unmarshal message: " + err.Error())
+		logger.Error().Err(err).Msg("failed to unmarshal message")
 	}
 }
 
 func main() {
 
-	log.Info("starting up ...")
-
 	serviceName := "messaging-golang-test"
-	config := messaging.LoadConfiguration(serviceName)
+
+	logger := log.With().Str("service", serviceName).Logger()
+	logger.Info().Msg("starting up ...")
+
+	config := messaging.LoadConfiguration(serviceName, logger)
 
 	messenger, _ := messaging.Initialize(config)
 	defer messenger.Close()

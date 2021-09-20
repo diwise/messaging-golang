@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -35,7 +37,7 @@ func NewPingCommand() CommandMessage {
 //NewPingCommandHandler returns a callback function to be called when ping commands
 //are received
 func NewPingCommandHandler(ctx Context) CommandHandler {
-	return func(wrapper CommandMessageWrapper) error {
+	return func(wrapper CommandMessageWrapper, logger zerolog.Logger) error {
 		ping := PingCommand{}
 		_ = json.Unmarshal(wrapper.Body(), &ping)
 
