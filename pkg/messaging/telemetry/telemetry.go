@@ -22,6 +22,21 @@ func (msg *Temperature) TopicName() string {
 	return "telemetry.temperature"
 }
 
+// NewTemperatureTelemetry creates a telemetry message from ambient temp data
+func NewTemperatureTelemetry(temp float64, device string, lat, lon float64) *Temperature {
+	return &Temperature{
+		Temp: temp,
+		IoTHubMessage: messaging.IoTHubMessage{
+			Origin: messaging.IoTHubMessageOrigin{
+				Device:    device,
+				Latitude:  lat,
+				Longitude: lon,
+			},
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+}
+
 // WaterTemperature is a telemetry type IoTHubMessage
 type WaterTemperature struct {
 	messaging.IoTHubMessage
