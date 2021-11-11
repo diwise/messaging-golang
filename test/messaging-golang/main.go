@@ -6,7 +6,7 @@ import (
 
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/diwise/messaging-golang/pkg/messaging/telemetry"
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
