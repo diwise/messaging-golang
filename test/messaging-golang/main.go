@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -39,7 +40,7 @@ func main() {
 	}
 
 	messenger.RegisterTopicMessageHandler(testMessage.TopicName(), messageHandler)
-	messenger.PublishOnTopic(testMessage)
+	messenger.PublishOnTopic(context.Background(), testMessage)
 
 	time.Sleep(5 * time.Second)
 

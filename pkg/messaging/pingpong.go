@@ -36,12 +36,12 @@ func NewPingCommand() CommandMessage {
 
 //NewPingCommandHandler returns a callback function to be called when ping commands
 //are received
-func NewPingCommandHandler(ctx Context) CommandHandler {
+func NewPingCommandHandler(ctx MsgContext) CommandHandler {
 	return func(wrapper CommandMessageWrapper, logger zerolog.Logger) error {
 		ping := PingCommand{}
 		_ = json.Unmarshal(wrapper.Body(), &ping)
 
-		err := wrapper.RespondWith(NewPongResponse(ping))
+		err := wrapper.RespondWith(wrapper.Context(), NewPongResponse(ping))
 		if err != nil {
 			return fmt.Errorf("failed to publish a pong response to ourselves! : %s", err.Error())
 		}

@@ -4,14 +4,15 @@
 package messaging
 
 import (
+	"context"
 	"sync"
 )
 
 // Ensure, that ContextMock does implement Context.
 // If this is not the case, regenerate this file with moq.
-var _ Context = &ContextMock{}
+var _ MsgContext = &MsgContextMock{}
 
-// ContextMock is a mock implementation of Context.
+// MsgContextMock is a mock implementation of MsgContext.
 //
 // 	func TestSomethingThatUsesContext(t *testing.T) {
 //
@@ -20,10 +21,10 @@ var _ Context = &ContextMock{}
 // 			CloseFunc: func()  {
 // 				panic("mock out the Close method")
 // 			},
-// 			NoteToSelfFunc: func(command CommandMessage) error {
+// 			NoteToSelfFunc: func(ctx context.Context, command CommandMessage) error {
 // 				panic("mock out the NoteToSelf method")
 // 			},
-// 			PublishOnTopicFunc: func(message TopicMessage) error {
+// 			PublishOnTopicFunc: func(ctx context.Context, message TopicMessage) error {
 // 				panic("mock out the PublishOnTopic method")
 // 			},
 // 			RegisterCommandHandlerFunc: func(contentType string, handler CommandHandler) error {
@@ -32,10 +33,10 @@ var _ Context = &ContextMock{}
 // 			RegisterTopicMessageHandlerFunc: func(routingKey string, handler TopicMessageHandler)  {
 // 				panic("mock out the RegisterTopicMessageHandler method")
 // 			},
-// 			SendCommandToFunc: func(command CommandMessage, key string) error {
+// 			SendCommandToFunc: func(ctx context.Context, command CommandMessage, key string) error {
 // 				panic("mock out the SendCommandTo method")
 // 			},
-// 			SendResponseToFunc: func(response CommandMessage, key string) error {
+// 			SendResponseToFunc: func(ctx context.Context, response CommandMessage, key string) error {
 // 				panic("mock out the SendResponseTo method")
 // 			},
 // 		}
@@ -44,15 +45,15 @@ var _ Context = &ContextMock{}
 // 		// and then make assertions.
 //
 // 	}
-type ContextMock struct {
+type MsgContextMock struct {
 	// CloseFunc mocks the Close method.
 	CloseFunc func()
 
 	// NoteToSelfFunc mocks the NoteToSelf method.
-	NoteToSelfFunc func(command CommandMessage) error
+	NoteToSelfFunc func(ctx context.Context, command CommandMessage) error
 
 	// PublishOnTopicFunc mocks the PublishOnTopic method.
-	PublishOnTopicFunc func(message TopicMessage) error
+	PublishOnTopicFunc func(ctx context.Context, message TopicMessage) error
 
 	// RegisterCommandHandlerFunc mocks the RegisterCommandHandler method.
 	RegisterCommandHandlerFunc func(contentType string, handler CommandHandler) error
@@ -61,10 +62,10 @@ type ContextMock struct {
 	RegisterTopicMessageHandlerFunc func(routingKey string, handler TopicMessageHandler)
 
 	// SendCommandToFunc mocks the SendCommandTo method.
-	SendCommandToFunc func(command CommandMessage, key string) error
+	SendCommandToFunc func(ctx context.Context, command CommandMessage, key string) error
 
 	// SendResponseToFunc mocks the SendResponseTo method.
-	SendResponseToFunc func(response CommandMessage, key string) error
+	SendResponseToFunc func(ctx context.Context, response CommandMessage, key string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -73,11 +74,13 @@ type ContextMock struct {
 		}
 		// NoteToSelf holds details about calls to the NoteToSelf method.
 		NoteToSelf []struct {
+			Ctx context.Context
 			// Command is the command argument value.
 			Command CommandMessage
 		}
 		// PublishOnTopic holds details about calls to the PublishOnTopic method.
 		PublishOnTopic []struct {
+			Ctx context.Context
 			// Message is the message argument value.
 			Message TopicMessage
 		}
@@ -97,6 +100,7 @@ type ContextMock struct {
 		}
 		// SendCommandTo holds details about calls to the SendCommandTo method.
 		SendCommandTo []struct {
+			Ctx context.Context
 			// Command is the command argument value.
 			Command CommandMessage
 			// Key is the key argument value.
@@ -104,6 +108,7 @@ type ContextMock struct {
 		}
 		// SendResponseTo holds details about calls to the SendResponseTo method.
 		SendResponseTo []struct {
+			Ctx context.Context
 			// Response is the response argument value.
 			Response CommandMessage
 			// Key is the key argument value.
@@ -120,7 +125,7 @@ type ContextMock struct {
 }
 
 // Close calls CloseFunc.
-func (mock *ContextMock) Close() {
+func (mock *MsgContextMock) Close() {
 	callInfo := struct {
 	}{}
 	mock.lockClose.Lock()
@@ -135,7 +140,7 @@ func (mock *ContextMock) Close() {
 // CloseCalls gets all the calls that were made to Close.
 // Check the length with:
 //     len(mockedContext.CloseCalls())
-func (mock *ContextMock) CloseCalls() []struct {
+func (mock *MsgContextMock) CloseCalls() []struct {
 } {
 	var calls []struct {
 	}
@@ -146,10 +151,12 @@ func (mock *ContextMock) CloseCalls() []struct {
 }
 
 // NoteToSelf calls NoteToSelfFunc.
-func (mock *ContextMock) NoteToSelf(command CommandMessage) error {
+func (mock *MsgContextMock) NoteToSelf(ctx context.Context, command CommandMessage) error {
 	callInfo := struct {
+		Ctx     context.Context
 		Command CommandMessage
 	}{
+		Ctx:     ctx,
 		Command: command,
 	}
 	mock.lockNoteToSelf.Lock()
@@ -161,16 +168,18 @@ func (mock *ContextMock) NoteToSelf(command CommandMessage) error {
 		)
 		return errOut
 	}
-	return mock.NoteToSelfFunc(command)
+	return mock.NoteToSelfFunc(ctx, command)
 }
 
 // NoteToSelfCalls gets all the calls that were made to NoteToSelf.
 // Check the length with:
 //     len(mockedContext.NoteToSelfCalls())
-func (mock *ContextMock) NoteToSelfCalls() []struct {
+func (mock *MsgContextMock) NoteToSelfCalls() []struct {
+	Ctx     context.Context
 	Command CommandMessage
 } {
 	var calls []struct {
+		Ctx     context.Context
 		Command CommandMessage
 	}
 	mock.lockNoteToSelf.RLock()
@@ -180,10 +189,12 @@ func (mock *ContextMock) NoteToSelfCalls() []struct {
 }
 
 // PublishOnTopic calls PublishOnTopicFunc.
-func (mock *ContextMock) PublishOnTopic(message TopicMessage) error {
+func (mock *MsgContextMock) PublishOnTopic(ctx context.Context, message TopicMessage) error {
 	callInfo := struct {
+		Ctx     context.Context
 		Message TopicMessage
 	}{
+		Ctx:     ctx,
 		Message: message,
 	}
 	mock.lockPublishOnTopic.Lock()
@@ -195,16 +206,18 @@ func (mock *ContextMock) PublishOnTopic(message TopicMessage) error {
 		)
 		return errOut
 	}
-	return mock.PublishOnTopicFunc(message)
+	return mock.PublishOnTopicFunc(ctx, message)
 }
 
 // PublishOnTopicCalls gets all the calls that were made to PublishOnTopic.
 // Check the length with:
 //     len(mockedContext.PublishOnTopicCalls())
-func (mock *ContextMock) PublishOnTopicCalls() []struct {
+func (mock *MsgContextMock) PublishOnTopicCalls() []struct {
+	Ctx     context.Context
 	Message TopicMessage
 } {
 	var calls []struct {
+		Ctx     context.Context
 		Message TopicMessage
 	}
 	mock.lockPublishOnTopic.RLock()
@@ -214,7 +227,7 @@ func (mock *ContextMock) PublishOnTopicCalls() []struct {
 }
 
 // RegisterCommandHandler calls RegisterCommandHandlerFunc.
-func (mock *ContextMock) RegisterCommandHandler(contentType string, handler CommandHandler) error {
+func (mock *MsgContextMock) RegisterCommandHandler(contentType string, handler CommandHandler) error {
 	callInfo := struct {
 		ContentType string
 		Handler     CommandHandler
@@ -237,7 +250,7 @@ func (mock *ContextMock) RegisterCommandHandler(contentType string, handler Comm
 // RegisterCommandHandlerCalls gets all the calls that were made to RegisterCommandHandler.
 // Check the length with:
 //     len(mockedContext.RegisterCommandHandlerCalls())
-func (mock *ContextMock) RegisterCommandHandlerCalls() []struct {
+func (mock *MsgContextMock) RegisterCommandHandlerCalls() []struct {
 	ContentType string
 	Handler     CommandHandler
 } {
@@ -252,7 +265,7 @@ func (mock *ContextMock) RegisterCommandHandlerCalls() []struct {
 }
 
 // RegisterTopicMessageHandler calls RegisterTopicMessageHandlerFunc.
-func (mock *ContextMock) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) {
+func (mock *MsgContextMock) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) {
 	callInfo := struct {
 		RoutingKey string
 		Handler    TopicMessageHandler
@@ -272,7 +285,7 @@ func (mock *ContextMock) RegisterTopicMessageHandler(routingKey string, handler 
 // RegisterTopicMessageHandlerCalls gets all the calls that were made to RegisterTopicMessageHandler.
 // Check the length with:
 //     len(mockedContext.RegisterTopicMessageHandlerCalls())
-func (mock *ContextMock) RegisterTopicMessageHandlerCalls() []struct {
+func (mock *MsgContextMock) RegisterTopicMessageHandlerCalls() []struct {
 	RoutingKey string
 	Handler    TopicMessageHandler
 } {
@@ -287,11 +300,13 @@ func (mock *ContextMock) RegisterTopicMessageHandlerCalls() []struct {
 }
 
 // SendCommandTo calls SendCommandToFunc.
-func (mock *ContextMock) SendCommandTo(command CommandMessage, key string) error {
+func (mock *MsgContextMock) SendCommandTo(ctx context.Context, command CommandMessage, key string) error {
 	callInfo := struct {
+		Ctx     context.Context
 		Command CommandMessage
 		Key     string
 	}{
+		Ctx:     ctx,
 		Command: command,
 		Key:     key,
 	}
@@ -304,17 +319,19 @@ func (mock *ContextMock) SendCommandTo(command CommandMessage, key string) error
 		)
 		return errOut
 	}
-	return mock.SendCommandToFunc(command, key)
+	return mock.SendCommandToFunc(ctx, command, key)
 }
 
 // SendCommandToCalls gets all the calls that were made to SendCommandTo.
 // Check the length with:
 //     len(mockedContext.SendCommandToCalls())
-func (mock *ContextMock) SendCommandToCalls() []struct {
+func (mock *MsgContextMock) SendCommandToCalls() []struct {
+	Ctx     context.Context
 	Command CommandMessage
 	Key     string
 } {
 	var calls []struct {
+		Ctx     context.Context
 		Command CommandMessage
 		Key     string
 	}
@@ -325,11 +342,13 @@ func (mock *ContextMock) SendCommandToCalls() []struct {
 }
 
 // SendResponseTo calls SendResponseToFunc.
-func (mock *ContextMock) SendResponseTo(response CommandMessage, key string) error {
+func (mock *MsgContextMock) SendResponseTo(ctx context.Context, response CommandMessage, key string) error {
 	callInfo := struct {
+		Ctx      context.Context
 		Response CommandMessage
 		Key      string
 	}{
+		Ctx:      ctx,
 		Response: response,
 		Key:      key,
 	}
@@ -342,17 +361,19 @@ func (mock *ContextMock) SendResponseTo(response CommandMessage, key string) err
 		)
 		return errOut
 	}
-	return mock.SendResponseToFunc(response, key)
+	return mock.SendResponseToFunc(ctx, response, key)
 }
 
 // SendResponseToCalls gets all the calls that were made to SendResponseTo.
 // Check the length with:
 //     len(mockedContext.SendResponseToCalls())
-func (mock *ContextMock) SendResponseToCalls() []struct {
+func (mock *MsgContextMock) SendResponseToCalls() []struct {
+	Ctx      context.Context
 	Response CommandMessage
 	Key      string
 } {
 	var calls []struct {
+		Ctx      context.Context
 		Response CommandMessage
 		Key      string
 	}

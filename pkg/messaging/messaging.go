@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -31,14 +32,16 @@ type Config struct {
 	logger      zerolog.Logger
 }
 
-// Context encapsulates the underlying messaging primitives, as well as
+// MsgContext encapsulates the underlying messaging primitives, as well as
 // their associated configuration
-type Context interface {
-	NoteToSelf(command CommandMessage) error
-	SendCommandTo(command CommandMessage, key string) error
-	SendResponseTo(response CommandMessage, key string) error
-	PublishOnTopic(message TopicMessage) error
+type MsgContext interface {
+	NoteToSelf(ctx context.Context, command CommandMessage) error
+	SendCommandTo(ctx context.Context, command CommandMessage, key string) error
+	SendResponseTo(ctx context.Context, response CommandMessage, key string) error
+	PublishOnTopic(ctx context.Context, message TopicMessage) error
+
 	Close()
+
 	RegisterCommandHandler(contentType string, handler CommandHandler) error
 	RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler)
 }
@@ -62,25 +65,26 @@ type CommandMessage interface {
 // CommandMessageWrapper is used to wrap an incoming command message
 type CommandMessageWrapper interface {
 	Body() []byte
-	RespondWith(CommandMessage) error
+	Context() context.Context
+	RespondWith(context.Context, CommandMessage) error
 }
 
 // NoteToSelf enqueues a command to the same routing key as the calling service
 // which means that the sender or one of its replicas will receive the command
-func (ctx *rabbitMQContext) NoteToSelf(command CommandMessage) error {
-	return ctx.SendCommandTo(command, ctx.serviceName())
+func (rmq *rabbitMQContext) NoteToSelf(ctx context.Context, command CommandMessage) error {
+	return rmq.SendCommandTo(ctx, command, rmq.serviceName())
 }
 
 // SendCommandTo enqueues a command to given routing key via the command exchange
-func (ctx *rabbitMQContext) SendCommandTo(command CommandMessage, key string) error {
+func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command CommandMessage, key string) error {
 	messageBytes, err := json.MarshalIndent(command, "", " ")
 	if err != nil {
 		return &Error{"unable to marshal command to json!", err}
 	}
 
-	err = ctx.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
+	err = rmq.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
 		ContentType: command.ContentType(),
-		ReplyTo:     ctx.responseQueueName,
+		ReplyTo:     rmq.responseQueueName,
 		Body:        messageBytes,
 	})
 	if err != nil {
@@ -91,13 +95,13 @@ func (ctx *rabbitMQContext) SendCommandTo(command CommandMessage, key string) er
 }
 
 // SendResponseTo enqueues a response to a given routing key via the command exchange
-func (ctx *rabbitMQContext) SendResponseTo(response CommandMessage, key string) error {
+func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response CommandMessage, key string) error {
 	messageBytes, err := json.MarshalIndent(response, "", " ")
 	if err != nil {
 		return &Error{"unable to marshal response to json!", err}
 	}
 
-	err = ctx.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
+	err = rmq.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
 		ContentType: response.ContentType(),
 		Body:        messageBytes,
 	})
@@ -117,13 +121,13 @@ type TopicMessage interface {
 
 // PublishOnTopic takes a TopicMessage, reads its TopicName property,
 // and publishes it to the correct topic with the correct content type
-func (ctx *rabbitMQContext) PublishOnTopic(message TopicMessage) error {
+func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMessage) error {
 	messageBytes, err := json.MarshalIndent(message, "", " ")
 	if err != nil {
 		return &Error{"unable to marshal telemetry message to json!", err}
 	}
 
-	err = ctx.channel.Publish(topicExchange, message.TopicName(), false, false,
+	err = rmq.channel.Publish(topicExchange, message.TopicName(), false, false,
 		amqp.Publishing{
 			ContentType: message.ContentType(),
 			Body:        messageBytes,
@@ -134,9 +138,9 @@ func (ctx *rabbitMQContext) PublishOnTopic(message TopicMessage) error {
 
 // Close is a wrapper method to close both the underlying AMQP
 // connection as well as the channel
-func (ctx *rabbitMQContext) Close() {
-	ctx.channel.Close()
-	ctx.connection.Close()
+func (rmq *rabbitMQContext) Close() {
+	rmq.channel.Close()
+	rmq.connection.Close()
 }
 
 //CommandHandler is a callback type to be used for dispatching incoming commands
@@ -144,19 +148,19 @@ type CommandHandler func(CommandMessageWrapper, zerolog.Logger) error
 
 //RegisterCommandHandler registers a handler to be called when a command with a given
 //content type is received
-func (ctx *rabbitMQContext) RegisterCommandHandler(contentType string, handler CommandHandler) error {
+func (rmq *rabbitMQContext) RegisterCommandHandler(contentType string, handler CommandHandler) error {
 	//TODO: Return an error if a handler has already been registered
 	//TODO: Mutex protection
-	if ctx.commandHandlers == nil {
-		ctx.commandHandlers = map[string]CommandHandler{}
+	if rmq.commandHandlers == nil {
+		rmq.commandHandlers = map[string]CommandHandler{}
 	}
 
-	ctx.commandHandlers[contentType] = handler
+	rmq.commandHandlers[contentType] = handler
 	return nil
 }
 
-func (ctx *rabbitMQContext) serviceName() string {
-	return ctx.cfg.ServiceName
+func (rmq *rabbitMQContext) serviceName() string {
+	return rmq.cfg.ServiceName
 }
 
 // Error encapsulates a lower level error together with an error
@@ -222,11 +226,11 @@ func LoadConfiguration(serviceName string, log zerolog.Logger) Config {
 // Initialize takes a Config parameter and initializes a connection,
 // channel, topic exchange, command exchange and service specific
 // command and response queues. Retries every 2 seconds until successfull.
-func Initialize(cfg Config) (Context, error) {
+func Initialize(cfg Config) (MsgContext, error) {
 
 	if cfg.Host == "" {
 		cfg.logger.Info().Msg("host name empty, returning mocked context instead.")
-		return &ContextMock{}, nil
+		return &MsgContextMock{}, nil
 	}
 
 	var connClosedError = make(chan *amqp.Error)
@@ -368,38 +372,38 @@ func createTopicExchange(ctx *rabbitMQContext) error {
 	return err
 }
 
-func createCommandAndResponseQueues(ctx *rabbitMQContext) error {
-	err := createCommandExchange(ctx)
+func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
+	err := createCommandExchange(rmq)
 	if err != nil {
 		return err
 	}
 
-	serviceName := ctx.serviceName()
+	serviceName := rmq.serviceName()
 
-	commandQueue, err := ctx.channel.QueueDeclare(serviceName, false, false, false, false, nil)
+	commandQueue, err := rmq.channel.QueueDeclare(serviceName, false, false, false, false, nil)
 	if err != nil {
 		return &Error{"failed to declare command queue for " + serviceName + "!", err}
 	}
 
-	cmdlog := ctx.cfg.logger.With().Str("queue", commandQueue.Name).Logger()
+	cmdlog := rmq.cfg.logger.With().Str("queue", commandQueue.Name).Logger()
 	cmdlog.Info().Msg("declared command queue")
 
-	err = ctx.channel.QueueBind(commandQueue.Name, serviceName, commandExchange, false, nil)
+	err = rmq.channel.QueueBind(commandQueue.Name, serviceName, commandExchange, false, nil)
 	if err != nil {
 		return &Error{"failed to bind command queue " + commandQueue.Name + " to exchange " + commandExchange + "!", err}
 	}
 
 	cmdlog.Info().Msg("bound command queue to command exchange")
 
-	responseQueue, err := ctx.channel.QueueDeclare("", false, true, true, false, nil)
+	responseQueue, err := rmq.channel.QueueDeclare("", false, true, true, false, nil)
 	if err != nil {
 		return &Error{"failed to declare response queue for " + serviceName + "!", err}
 	}
 
-	resplog := ctx.cfg.logger.With().Str("queue", responseQueue.Name).Logger()
+	resplog := rmq.cfg.logger.With().Str("queue", responseQueue.Name).Logger()
 	resplog.Info().Msg("declared response queue")
 
-	err = ctx.channel.QueueBind(responseQueue.Name, responseQueue.Name, commandExchange, false, nil)
+	err = rmq.channel.QueueBind(responseQueue.Name, responseQueue.Name, commandExchange, false, nil)
 	if err != nil {
 		msg := fmt.Sprintf("failed to bind response queue %s to exchange %s!", responseQueue.Name, commandExchange)
 		return &Error{msg, err}
@@ -407,13 +411,13 @@ func createCommandAndResponseQueues(ctx *rabbitMQContext) error {
 
 	resplog.Info().Msg("bound response queue to command exchange")
 
-	commands, err := ctx.channel.Consume(commandQueue.Name, "command-consumer", false, false, false, false, nil)
+	commands, err := rmq.channel.Consume(commandQueue.Name, "command-consumer", false, false, false, false, nil)
 	if err != nil {
 		msg := fmt.Sprintf("unable to start consuming commands from %s!", commandQueue.Name)
 		return &Error{msg, err}
 	}
 
-	ctx.RegisterCommandHandler(PingCommandContentType, NewPingCommandHandler(ctx))
+	rmq.RegisterCommandHandler(PingCommandContentType, NewPingCommandHandler(rmq))
 
 	go func() {
 		for cmd := range commands {
@@ -425,9 +429,9 @@ func createCommandAndResponseQueues(ctx *rabbitMQContext) error {
 
 			sublog.Info().Str("body", string(cmd.Body)).Msg("received command")
 
-			handler, ok := ctx.commandHandlers[cmd.ContentType]
+			handler, ok := rmq.commandHandlers[cmd.ContentType]
 			if ok {
-				handler(newAMQPDeliveryWrapper(ctx, &cmd), sublog)
+				handler(newAMQPDeliveryWrapper(rmq, &cmd), sublog)
 			} else {
 				sublog.Warn().Msgf("no handler registered for command with content type %s", cmd.ContentType)
 			}
@@ -436,15 +440,15 @@ func createCommandAndResponseQueues(ctx *rabbitMQContext) error {
 		}
 	}()
 
-	responses, err := ctx.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
+	responses, err := rmq.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
 	if err != nil {
 		msg := fmt.Sprintf("unable to start consuming responses from %s!", responseQueue.Name)
 		return &Error{msg, err}
 	}
 
-	ctx.responseQueueName = responseQueue.Name
+	rmq.responseQueueName = responseQueue.Name
 
-	err = ctx.NoteToSelf(NewPingCommand())
+	err = rmq.NoteToSelf(context.Background(), NewPingCommand())
 	if err != nil {
 		return &Error{"failed to publish a ping command to ourselves!", err}
 	}
