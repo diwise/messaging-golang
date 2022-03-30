@@ -7,8 +7,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/diwise/messaging-golang/pkg/messaging/tracing"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type IoTHubMessageOrigin struct {
@@ -69,6 +73,8 @@ type CommandMessageWrapper interface {
 	RespondWith(context.Context, CommandMessage) error
 }
 
+var tracer = otel.Tracer("messaging-rmq")
+
 // NoteToSelf enqueues a command to the same routing key as the calling service
 // which means that the sender or one of its replicas will receive the command
 func (rmq *rabbitMQContext) NoteToSelf(ctx context.Context, command CommandMessage) error {
@@ -77,12 +83,27 @@ func (rmq *rabbitMQContext) NoteToSelf(ctx context.Context, command CommandMessa
 
 // SendCommandTo enqueues a command to given routing key via the command exchange
 func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command CommandMessage, key string) error {
+	var err error
+
 	messageBytes, err := json.MarshalIndent(command, "", " ")
 	if err != nil {
 		return &Error{"unable to marshal command to json!", err}
 	}
 
+	ctx, span := tracer.Start(
+		ctx, commandExchange+" command",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(attribute.String("messaging.rabbitmq.routing_key", key)),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+		}
+		span.End()
+	}()
+
 	err = rmq.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
+		Headers:     tracing.InjectAMQPHeaders(ctx),
 		ContentType: command.ContentType(),
 		ReplyTo:     rmq.responseQueueName,
 		Body:        messageBytes,
@@ -96,12 +117,27 @@ func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command CommandMe
 
 // SendResponseTo enqueues a response to a given routing key via the command exchange
 func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response CommandMessage, key string) error {
+	var err error
+
 	messageBytes, err := json.MarshalIndent(response, "", " ")
 	if err != nil {
 		return &Error{"unable to marshal response to json!", err}
 	}
 
+	ctx, span := tracer.Start(
+		ctx, commandExchange+" response",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(attribute.String("messaging.rabbitmq.routing_key", key)),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+		}
+		span.End()
+	}()
+
 	err = rmq.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
+		Headers:     tracing.InjectAMQPHeaders(ctx),
 		ContentType: response.ContentType(),
 		Body:        messageBytes,
 	})
@@ -122,13 +158,28 @@ type TopicMessage interface {
 // PublishOnTopic takes a TopicMessage, reads its TopicName property,
 // and publishes it to the correct topic with the correct content type
 func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMessage) error {
+	var err error
+
 	messageBytes, err := json.MarshalIndent(message, "", " ")
 	if err != nil {
 		return &Error{"unable to marshal telemetry message to json!", err}
 	}
 
+	ctx, span := tracer.Start(
+		ctx, topicExchange+" publish",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(attribute.String("messaging.rabbitmq.routing_key", message.TopicName())),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+		}
+		span.End()
+	}()
+
 	err = rmq.channel.Publish(topicExchange, message.TopicName(), false, false,
 		amqp.Publishing{
+			Headers:     tracing.InjectAMQPHeaders(ctx),
 			ContentType: message.ContentType(),
 			Body:        messageBytes,
 		})
@@ -144,7 +195,7 @@ func (rmq *rabbitMQContext) Close() {
 }
 
 //CommandHandler is a callback type to be used for dispatching incoming commands
-type CommandHandler func(CommandMessageWrapper, zerolog.Logger) error
+type CommandHandler func(context.Context, CommandMessageWrapper, zerolog.Logger) error
 
 //RegisterCommandHandler registers a handler to be called when a command with a given
 //content type is received
@@ -268,7 +319,7 @@ func Initialize(cfg Config) (MsgContext, error) {
 
 // TopicMessageHandler is a callback type that should be passed
 // to RegisterTopicMessageHandler to receive messages from topics.
-type TopicMessageHandler func(amqp.Delivery, zerolog.Logger)
+type TopicMessageHandler func(context.Context, amqp.Delivery, zerolog.Logger)
 
 // RegisterTopicMessageHandler creates a subscription queue that is bound
 // to the topic exchange with the provided routing key, starts a consumer
@@ -321,7 +372,10 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 
 	go func() {
 		for msg := range messagesFromQueue {
-			handler(msg, logger)
+			ctx := tracing.ExtractAMQPHeaders(context.Background(), msg.Headers)
+			ctx, span := tracer.Start(ctx, queue.Name+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+			handler(ctx, msg, logger)
+			span.End()
 		}
 	}()
 }
@@ -429,12 +483,19 @@ func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
 
 			sublog.Info().Str("body", string(cmd.Body)).Msg("received command")
 
+			ctx := tracing.ExtractAMQPHeaders(context.Background(), cmd.Headers)
+			ctx, span := tracer.Start(ctx, commandQueue.Name+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+
 			handler, ok := rmq.commandHandlers[cmd.ContentType]
 			if ok {
-				handler(newAMQPDeliveryWrapper(rmq, &cmd), sublog)
+				handler(ctx, newAMQPDeliveryWrapper(rmq, &cmd), sublog)
 			} else {
-				sublog.Warn().Msgf("no handler registered for command with content type %s", cmd.ContentType)
+				err := fmt.Errorf("no handler registered for command with content type %s", cmd.ContentType)
+				span.RecordError(err)
+				sublog.Warn().Err(err).Msg("no handler")
 			}
+
+			span.End()
 
 			cmd.Ack(true)
 		}
@@ -455,8 +516,14 @@ func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
 
 	go func() {
 		for response := range responses {
+			ctx := tracing.ExtractAMQPHeaders(context.Background(), response.Headers)
+			ctx, span := tracer.Start(ctx, rmq.responseQueueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+
+			// TODO: Ability to dispatch response to an application supplied response handler
 			resplog.Info().Str("body", string(response.Body)).Msg("received response")
 			response.Ack(true)
+
+			span.End()
 		}
 	}()
 

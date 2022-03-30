@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func messageHandler(message amqp.Delivery, logger zerolog.Logger) {
+func messageHandler(ctx context.Context, message amqp.Delivery, logger zerolog.Logger) {
 	logger.Info().Str("body", string(message.Body)).Msg("message received from queue")
 	msg := &telemetry.Temperature{}
 
