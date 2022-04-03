@@ -374,6 +374,12 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 		for msg := range messagesFromQueue {
 			ctx := tracing.ExtractAMQPHeaders(context.Background(), msg.Headers)
 			ctx, span := tracer.Start(ctx, queue.Name+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+
+			traceID := span.SpanContext().TraceID()
+			if traceID.IsValid() {
+				logger = logger.With().Str("traceID", traceID.String()).Logger()
+			}
+
 			handler(ctx, msg, logger)
 			span.End()
 		}
@@ -477,14 +483,15 @@ func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
 		for cmd := range commands {
 			sublog := cmdlog
 
-			if len(cmd.CorrelationId) > 0 {
-				sublog = sublog.With().Str("traceID", cmd.CorrelationId).Logger()
+			ctx := tracing.ExtractAMQPHeaders(context.Background(), cmd.Headers)
+			ctx, span := tracer.Start(ctx, commandQueue.Name+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+
+			traceID := span.SpanContext().TraceID()
+			if traceID.IsValid() {
+				sublog = sublog.With().Str("traceID", traceID.String()).Logger()
 			}
 
 			sublog.Info().Str("body", string(cmd.Body)).Msg("received command")
-
-			ctx := tracing.ExtractAMQPHeaders(context.Background(), cmd.Headers)
-			ctx, span := tracer.Start(ctx, commandQueue.Name+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
 
 			handler, ok := rmq.commandHandlers[cmd.ContentType]
 			if ok {
@@ -518,6 +525,11 @@ func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
 		for response := range responses {
 			ctx := tracing.ExtractAMQPHeaders(context.Background(), response.Headers)
 			ctx, span := tracer.Start(ctx, rmq.responseQueueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+
+			traceID := span.SpanContext().TraceID()
+			if traceID.IsValid() {
+				resplog = resplog.With().Str("traceID", traceID.String()).Logger()
+			}
 
 			// TODO: Ability to dispatch response to an application supplied response handler
 			resplog.Info().Str("body", string(response.Body)).Msg("received response")
