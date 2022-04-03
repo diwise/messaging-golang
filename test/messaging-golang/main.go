@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func messageHandler(message amqp.Delivery, logger zerolog.Logger) {
+func messageHandler(ctx context.Context, message amqp.Delivery, logger zerolog.Logger) {
 	logger.Info().Str("body", string(message.Body)).Msg("message received from queue")
 	msg := &telemetry.Temperature{}
 
@@ -39,7 +40,7 @@ func main() {
 	}
 
 	messenger.RegisterTopicMessageHandler(testMessage.TopicName(), messageHandler)
-	messenger.PublishOnTopic(testMessage)
+	messenger.PublishOnTopic(context.Background(), testMessage)
 
 	time.Sleep(5 * time.Second)
 

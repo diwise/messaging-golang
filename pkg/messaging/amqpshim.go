@@ -1,16 +1,19 @@
 package messaging
 
 import (
+	"context"
+
+	"github.com/diwise/messaging-golang/pkg/messaging/tracing"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type amqpDeliveryWrapper struct {
-	ctx Context
+	rmq MsgContext
 	d   *amqp.Delivery
 }
 
-func newAMQPDeliveryWrapper(ctx Context, d *amqp.Delivery) *amqpDeliveryWrapper {
-	return &amqpDeliveryWrapper{ctx: ctx, d: d}
+func newAMQPDeliveryWrapper(ctx MsgContext, d *amqp.Delivery) *amqpDeliveryWrapper {
+	return &amqpDeliveryWrapper{rmq: ctx, d: d}
 }
 
 func (w *amqpDeliveryWrapper) Body() []byte {
@@ -21,6 +24,11 @@ func (w *amqpDeliveryWrapper) ContentType() string {
 	return w.d.ContentType
 }
 
-func (w *amqpDeliveryWrapper) RespondWith(response CommandMessage) error {
-	return w.ctx.SendResponseTo(response, w.d.ReplyTo)
+func (w *amqpDeliveryWrapper) Context() context.Context {
+	// TODO: Extract trace context from headers
+	return tracing.ExtractAMQPHeaders(context.Background(), w.d.Headers)
+}
+
+func (w *amqpDeliveryWrapper) RespondWith(ctx context.Context, response CommandMessage) error {
+	return w.rmq.SendResponseTo(ctx, response, w.d.ReplyTo)
 }

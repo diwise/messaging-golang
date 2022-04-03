@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -36,14 +37,25 @@ func NewPingCommand() CommandMessage {
 
 //NewPingCommandHandler returns a callback function to be called when ping commands
 //are received
-func NewPingCommandHandler(ctx Context) CommandHandler {
-	return func(wrapper CommandMessageWrapper, logger zerolog.Logger) error {
+func NewPingCommandHandler(ctx MsgContext) CommandHandler {
+	return func(ctx context.Context, wrapper CommandMessageWrapper, logger zerolog.Logger) error {
+		var err error
+
+		ctx, span := tracer.Start(ctx, "ping-pong")
+		defer func() {
+			if err != nil {
+				span.RecordError(err)
+			}
+			span.End()
+		}()
+
 		ping := PingCommand{}
 		_ = json.Unmarshal(wrapper.Body(), &ping)
 
-		err := wrapper.RespondWith(NewPongResponse(ping))
+		err = wrapper.RespondWith(wrapper.Context(), NewPongResponse(ping))
 		if err != nil {
-			return fmt.Errorf("failed to publish a pong response to ourselves! : %s", err.Error())
+			err = fmt.Errorf("failed to publish a pong response to ourselves! : %s", err.Error())
+			return err
 		}
 
 		return nil
