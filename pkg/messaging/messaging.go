@@ -372,15 +372,16 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 
 	go func() {
 		for msg := range messagesFromQueue {
+			sublog := logger
 			ctx := tracing.ExtractAMQPHeaders(context.Background(), msg.Headers)
 			ctx, span := tracer.Start(ctx, queue.Name+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
 
 			traceID := span.SpanContext().TraceID()
 			if traceID.IsValid() {
-				logger = logger.With().Str("traceID", traceID.String()).Logger()
+				sublog = sublog.With().Str("traceID", traceID.String()).Logger()
 			}
 
-			handler(ctx, msg, logger)
+			handler(ctx, msg, sublog)
 			span.End()
 		}
 	}()
