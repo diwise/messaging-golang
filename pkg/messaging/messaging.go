@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/diwise/messaging-golang/pkg/messaging/tracing"
@@ -31,6 +33,8 @@ type IoTHubMessage struct {
 type Config struct {
 	ServiceName string
 	Host        string
+	Port        uint64
+	VirtualHost string
 	User        string
 	Password    string
 	logger      zerolog.Logger
@@ -194,11 +198,11 @@ func (rmq *rabbitMQContext) Close() {
 	rmq.connection.Close()
 }
 
-//CommandHandler is a callback type to be used for dispatching incoming commands
+// CommandHandler is a callback type to be used for dispatching incoming commands
 type CommandHandler func(context.Context, CommandMessageWrapper, zerolog.Logger) error
 
-//RegisterCommandHandler registers a handler to be called when a command with a given
-//content type is received
+// RegisterCommandHandler registers a handler to be called when a command with a given
+// content type is received
 func (rmq *rabbitMQContext) RegisterCommandHandler(contentType string, handler CommandHandler) error {
 	//TODO: Return an error if a handler has already been registered
 	//TODO: Mutex protection
@@ -247,6 +251,8 @@ func getEnvironmentVariableOrDefault(key, fallback string) string {
 func LoadConfiguration(serviceName string, log zerolog.Logger) Config {
 	rabbitMQHostEnvVar := "RABBITMQ_HOST"
 	rabbitMQHost := os.Getenv(rabbitMQHostEnvVar)
+	rabbitMQPort := getEnvironmentVariableOrDefault("RABBITMQ_PORT", "5672")
+	rabbitMQTenant := getEnvironmentVariableOrDefault("RABBITMQ_VHOST", "/")
 	rabbitMQUser := getEnvironmentVariableOrDefault("RABBITMQ_USER", "user")
 	rabbitMQPass := getEnvironmentVariableOrDefault("RABBITMQ_PASS", "bitnami")
 	rabbitMQDisabled := getEnvironmentVariableOrDefault("RABBITMQ_DISABLED", "false")
@@ -256,9 +262,16 @@ func LoadConfiguration(serviceName string, log zerolog.Logger) Config {
 			log.Fatal().Msg("Rabbit MQ host missing. Please set " + rabbitMQHostEnvVar + " to a valid host name or IP.")
 		}
 
+		port, err := strconv.ParseUint(rabbitMQPort, 10, 32)
+		if err != nil {
+			log.Fatal().Msgf("Rabbit MQ port number must be numerical (not %s).", rabbitMQPort)
+		}
+
 		return Config{
 			ServiceName: serviceName,
 			Host:        rabbitMQHost,
+			Port:        port,
+			VirtualHost: rabbitMQTenant,
 			User:        rabbitMQUser,
 			Password:    rabbitMQPass,
 			logger:      log,
@@ -268,6 +281,7 @@ func LoadConfiguration(serviceName string, log zerolog.Logger) Config {
 	return Config{
 		ServiceName: serviceName,
 		Host:        "",
+		VirtualHost: "",
 		User:        "",
 		Password:    "",
 		logger:      log,
@@ -388,7 +402,12 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 }
 
 func createMessageQueueChannel(ctx *rabbitMQContext) (*rabbitMQContext, error) {
-	connectionString := fmt.Sprintf("amqp://%s:%s@%s:5672/", ctx.cfg.User, ctx.cfg.Password, ctx.cfg.Host)
+	connectionString := fmt.Sprintf(
+		"amqp://%s:%s@%s:%d/%s",
+		ctx.cfg.User, ctx.cfg.Password, ctx.cfg.Host, ctx.cfg.Port,
+		strings.TrimPrefix(ctx.cfg.VirtualHost, "/"),
+	)
+
 	conn, err := amqp.Dial(connectionString)
 	if err != nil {
 		return nil, &Error{"unable to connect to message queue!", err}
@@ -525,7 +544,7 @@ func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
 	go func() {
 		for response := range responses {
 			ctx := tracing.ExtractAMQPHeaders(context.Background(), response.Headers)
-			ctx, span := tracer.Start(ctx, rmq.responseQueueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+			_, span := tracer.Start(ctx, rmq.responseQueueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
 
 			traceID := span.SpanContext().TraceID()
 			if traceID.IsValid() {

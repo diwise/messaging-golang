@@ -16,18 +16,18 @@ const (
 	PongResponseContentType = "application/vnd-pong-response"
 )
 
-//PingCommand is a utility command to check the messenger connection
+// PingCommand is a utility command to check the messenger connection
 type PingCommand struct {
 	Cmd       string    `json:"cmd"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-//ContentType returns the content type for a ping command
+// ContentType returns the content type for a ping command
 func (cmd PingCommand) ContentType() string {
 	return PingCommandContentType
 }
 
-//NewPingCommand instantiates a new ping command
+// NewPingCommand instantiates a new ping command
 func NewPingCommand() CommandMessage {
 	return PingCommand{
 		Cmd:       "ping",
@@ -35,13 +35,13 @@ func NewPingCommand() CommandMessage {
 	}
 }
 
-//NewPingCommandHandler returns a callback function to be called when ping commands
-//are received
+// NewPingCommandHandler returns a callback function to be called when ping commands
+// are received
 func NewPingCommandHandler(ctx MsgContext) CommandHandler {
 	return func(ctx context.Context, wrapper CommandMessageWrapper, logger zerolog.Logger) error {
 		var err error
 
-		ctx, span := tracer.Start(ctx, "ping-pong")
+		_, span := tracer.Start(ctx, "ping-pong")
 		defer func() {
 			if err != nil {
 				span.RecordError(err)
@@ -62,19 +62,19 @@ func NewPingCommandHandler(ctx MsgContext) CommandHandler {
 	}
 }
 
-//PongResponse is a utility response to check the messenger connection
+// PongResponse is a utility response to check the messenger connection
 type PongResponse struct {
 	Cmd       string `json:"cmd"`
 	PingSent  time.Time
 	Timestamp time.Time `json:"timestamp"`
 }
 
-//ContentType returns the content type for a pong response
+// ContentType returns the content type for a pong response
 func (cmd PongResponse) ContentType() string {
 	return PingCommandContentType
 }
 
-//NewPongResponse instantiates a new pong response from a ping command
+// NewPongResponse instantiates a new pong response from a ping command
 func NewPongResponse(ping PingCommand) CommandMessage {
 	return PongResponse{
 		Cmd:       "pong",
