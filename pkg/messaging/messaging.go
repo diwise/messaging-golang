@@ -343,7 +343,7 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 	queue, err := ctx.channel.QueueDeclare(
 		"",    //name
 		false, //durable
-		false, //delete when unused
+		true,  //delete when unused
 		false, //exclusive
 		false, //no-wait
 		nil,   //arguments
@@ -352,7 +352,7 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 		ctx.cfg.logger.Fatal().Err(err).Msg("failed to declare a queue")
 	}
 
-	logger := ctx.cfg.logger.With().Str("queue", queue.Name).Logger()
+	logger := ctx.cfg.logger.With().Str("queue", queue.Name).Str("key", routingKey).Logger()
 
 	logger.Info().Msg("declared topic subscription queue")
 
@@ -372,7 +372,7 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 	messagesFromQueue, err := ctx.channel.Consume(
 		queue.Name, //queue
 		"",         //consumer
-		true,       //auto ack
+		false,      //auto ack
 		true,       //exclusive
 		false,      //no local
 		false,      //no-wait
@@ -396,6 +396,13 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 			}
 
 			handler(ctx, msg, sublog)
+
+			err = msg.Ack(false)
+			if err != nil {
+				logger.Error().Err(err).Msg("failed to ack message delivery")
+				span.RecordError(err)
+			}
+
 			span.End()
 		}
 	}()
