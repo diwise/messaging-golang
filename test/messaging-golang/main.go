@@ -27,12 +27,13 @@ func main() {
 
 	serviceName := "messaging-golang-test"
 
+	ctx := context.Background()
 	logger := log.With().Str("service", serviceName).Logger()
 	logger.Info().Msg("starting up ...")
 
-	config := messaging.LoadConfiguration(serviceName, logger)
+	config := messaging.LoadConfiguration(ctx, serviceName, logger)
 
-	messenger, _ := messaging.Initialize(config)
+	messenger, _ := messaging.Initialize(ctx, config)
 	defer messenger.Close()
 
 	testMessage := &telemetry.Temperature{

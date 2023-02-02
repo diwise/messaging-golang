@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -12,10 +13,11 @@ import (
 func TestLoadMockConfigAndInitialize(t *testing.T) {
 	os.Setenv("RABBITMQ_DISABLED", "true")
 
+	ctx := context.Background()
 	logger := log.With().Logger()
-	conf := messaging.LoadConfiguration("messaging-golang-test", logger)
+	conf := messaging.LoadConfiguration(ctx, "messaging-golang-test", logger)
 
-	_, err := messaging.Initialize(conf)
+	_, err := messaging.Initialize(ctx, conf)
 	if err != nil {
 		t.Error(err)
 	}
