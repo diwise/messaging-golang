@@ -367,7 +367,23 @@ type TopicMessageHandler func(context.Context, amqp.Delivery, zerolog.Logger)
 // to the topic exchange with the provided routing key, starts a consumer
 // for that queue and hands off any received messages to the provided
 // TopicMessageHandler
-func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) {
+func (msgctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
+	defer cancel()
+
+	registerComplete := make(chan struct{}, 1)
+
+	go registerTMH(msgctx, routingKey, handler, registerComplete)
+
+	select {
+	case <-ctx.Done():
+		msgctx.cfg.logger.Fatal().Msgf("failed to register topic message handler: %s", ctx.Err())
+	case <-registerComplete:
+		break
+	}
+}
+
+func registerTMH(ctx *rabbitMQContext, routingKey string, handler TopicMessageHandler, registerComplete chan struct{}) {
 	queue, err := ctx.channel.QueueDeclare(
 		"",    //name
 		false, //durable
@@ -434,6 +450,8 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 			span.End()
 		}
 	}()
+
+	registerComplete <- struct{}{}
 }
 
 func createMessageQueueChannel(ctx context.Context, msgctx *rabbitMQContext) (*rabbitMQContext, error) {
