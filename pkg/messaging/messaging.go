@@ -314,7 +314,7 @@ func Initialize(ctx context.Context, cfg Config) (MsgContext, error) {
 	}
 
 	initComplete := make(chan MsgContext, 1)
-	do_init(ctx, cfg, initComplete)
+	go do_init(ctx, cfg, initComplete)
 
 	select {
 	case msgctx := <-initComplete:
