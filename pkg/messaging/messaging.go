@@ -405,6 +405,8 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 
 			span.End()
 		}
+
+		logger.Error().Msg("topic message queue was closed")
 	}()
 }
 
@@ -533,6 +535,8 @@ func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
 
 			cmd.Ack(true)
 		}
+
+		cmdlog.Error().Msg("command queue was closed")
 	}()
 
 	responses, err := rmq.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
