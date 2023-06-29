@@ -399,7 +399,7 @@ func (ctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handl
 
 			err = msg.Ack(false)
 			if err != nil {
-				logger.Error().Err(err).Msg("failed to ack message delivery")
+				sublog.Error().Err(err).Msg("failed to ack message delivery")
 				span.RecordError(err)
 			}
 
@@ -533,7 +533,7 @@ func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
 
 			span.End()
 
-			cmd.Ack(true)
+			cmd.Ack(false)
 		}
 
 		cmdlog.Fatal().Msg("command queue was closed")
@@ -564,7 +564,7 @@ func createCommandAndResponseQueues(rmq *rabbitMQContext) error {
 
 			// TODO: Ability to dispatch response to an application supplied response handler
 			resplog.Info().Str("body", string(response.Body)).Msg("received response")
-			response.Ack(true)
+			response.Ack(false)
 
 			span.End()
 		}
