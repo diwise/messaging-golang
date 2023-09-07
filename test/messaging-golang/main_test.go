@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/rs/zerolog/log"
+	"log/slog"
 
 	"github.com/diwise/messaging-golang/pkg/messaging"
 )
@@ -14,7 +14,7 @@ func TestLoadMockConfigAndInitialize(t *testing.T) {
 	os.Setenv("RABBITMQ_DISABLED", "true")
 
 	ctx := context.Background()
-	logger := log.With().Logger()
+	logger := slog.Default()
 	conf := messaging.LoadConfiguration(ctx, "messaging-golang-test", logger)
 
 	_, err := messaging.Initialize(ctx, conf)

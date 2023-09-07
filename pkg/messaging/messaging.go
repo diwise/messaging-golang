@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	"github.com/diwise/messaging-golang/pkg/messaging/tracing"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -38,7 +39,7 @@ type Config struct {
 	User        string
 	Password    string
 	initTimeout time.Duration
-	logger      zerolog.Logger
+	logger      *slog.Logger
 }
 
 // MsgContext encapsulates the underlying messaging primitives, as well as
@@ -200,7 +201,7 @@ func (rmq *rabbitMQContext) Close() {
 }
 
 // CommandHandler is a callback type to be used for dispatching incoming commands
-type CommandHandler func(context.Context, CommandMessageWrapper, zerolog.Logger) error
+type CommandHandler func(context.Context, CommandMessageWrapper, *slog.Logger) error
 
 // RegisterCommandHandler registers a handler to be called when a command with a given
 // content type is received
@@ -249,7 +250,7 @@ func getEnvironmentVariableOrDefault(key, fallback string) string {
 // LoadConfiguration loads configuration values from RABBITMQ_HOST, RABBITMQ_USER
 // and RABBITMQ_PASS. The username and password defaults to the bitnami ootb
 // values for local testing.
-func LoadConfiguration(ctx context.Context, serviceName string, log zerolog.Logger) Config {
+func LoadConfiguration(ctx context.Context, serviceName string, log *slog.Logger) Config {
 	rabbitMQHostEnvVar := "RABBITMQ_HOST"
 	rabbitMQHost := os.Getenv(rabbitMQHostEnvVar)
 	rabbitMQPort := getEnvironmentVariableOrDefault("RABBITMQ_PORT", "5672")
@@ -260,18 +261,24 @@ func LoadConfiguration(ctx context.Context, serviceName string, log zerolog.Logg
 
 	if rabbitMQDisabled != "true" {
 		if rabbitMQHost == "" {
-			log.Fatal().Msg("Rabbit MQ host missing. Please set " + rabbitMQHostEnvVar + " to a valid host name or IP.")
+			msg := fmt.Sprintf("Rabbit MQ host missing. Please set " + rabbitMQHostEnvVar + " to a valid host name or IP.")
+			log.Error(msg)
+			panic(msg)
 		}
 
 		port, err := strconv.ParseUint(rabbitMQPort, 10, 32)
 		if err != nil {
-			log.Fatal().Msgf("Rabbit MQ port number must be numerical (not %s).", rabbitMQPort)
+			msg := fmt.Sprintf("Rabbit MQ port number must be numerical (not %s).", rabbitMQPort)
+			log.Error(msg)
+			panic(msg)
 		}
 
 		tmostr := getEnvironmentVariableOrDefault("RABBITMQ_INIT_TIMEOUT", "10")
 		timeout, err := strconv.ParseInt(tmostr, 10, 64)
 		if err != nil {
-			log.Fatal().Msgf("unable to parse messaging timeout value \"%s\" (%s)", tmostr, err.Error())
+			msg := fmt.Sprintf("unable to parse messaging timeout value \"%s\" (%s)", tmostr, err.Error())
+			log.Error(msg)
+			panic(msg)
 		}
 
 		return Config{
@@ -303,7 +310,7 @@ func LoadConfiguration(ctx context.Context, serviceName string, log zerolog.Logg
 func Initialize(ctx context.Context, cfg Config) (MsgContext, error) {
 
 	if cfg.Host == "" {
-		cfg.logger.Info().Msg("host name empty, returning mocked context instead.")
+		cfg.logger.Info("host name empty, returning mocked context instead.")
 		return &MsgContextMock{}, nil
 	}
 
@@ -338,19 +345,19 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 			connectionClosedError: connClosedError,
 		})
 		if err != nil {
-			cfg.logger.Error().Err(err).Msg("")
+			cfg.logger.Error("failed to create message queue channel", "err", err.Error())
 			continue
 		}
 
 		err = createTopicExchange(ctx, msgctx)
 		if err != nil {
-			cfg.logger.Error().Err(err).Msg("")
+			cfg.logger.Error("failed to create topic exchange", "err", err.Error())
 			continue
 		}
 
 		err = createCommandAndResponseQueues(ctx, msgctx)
 		if err != nil {
-			cfg.logger.Error().Err(err).Msg("")
+			cfg.logger.Error("failed to create cmd and response queues", "err", err.Error())
 			continue
 		}
 
@@ -361,7 +368,7 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 
 // TopicMessageHandler is a callback type that should be passed
 // to RegisterTopicMessageHandler to receive messages from topics.
-type TopicMessageHandler func(context.Context, amqp.Delivery, zerolog.Logger)
+type TopicMessageHandler func(context.Context, amqp.Delivery, *slog.Logger)
 
 // RegisterTopicMessageHandler creates a subscription queue that is bound
 // to the topic exchange with the provided routing key, starts a consumer
@@ -377,7 +384,9 @@ func (msgctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, ha
 
 	select {
 	case <-ctx.Done():
-		msgctx.cfg.logger.Fatal().Msgf("failed to register topic message handler: %s", ctx.Err())
+		msg := fmt.Sprintf("failed to register topic message handler: %s", ctx.Err())
+		msgctx.cfg.logger.Error(msg)
+		panic(msg)
 	case <-registerComplete:
 		break
 	}
@@ -393,12 +402,15 @@ func registerTMH(ctx *rabbitMQContext, routingKey string, handler TopicMessageHa
 		nil,   //arguments
 	)
 	if err != nil {
-		ctx.cfg.logger.Fatal().Err(err).Msg("failed to declare a queue")
+		ctx.cfg.logger.Error("failed to declare a queue", "err", err.Error())
 	}
 
-	logger := ctx.cfg.logger.With().Str("queue", queue.Name).Str("key", routingKey).Logger()
+	logger := ctx.cfg.logger.With(
+		slog.String("queue", queue.Name),
+		slog.String("key", routingKey),
+	)
 
-	logger.Info().Msg("declared topic subscription queue")
+	logger.Info("declared topic subscription queue")
 
 	err = ctx.channel.QueueBind(
 		queue.Name,
@@ -408,10 +420,12 @@ func registerTMH(ctx *rabbitMQContext, routingKey string, handler TopicMessageHa
 		nil,
 	)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("failed to bind to queue")
+		msg := "failed to bind to queue"
+		logger.Error(msg, "err", err.Error())
+		panic(err)
 	}
 
-	logger.Info().Msg("successfully bound to queue")
+	logger.Info("successfully bound to queue")
 
 	messagesFromQueue, err := ctx.channel.Consume(
 		queue.Name, //queue
@@ -423,10 +437,12 @@ func registerTMH(ctx *rabbitMQContext, routingKey string, handler TopicMessageHa
 		nil,        //args
 	)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("failed to register a consumer with queue")
+		msg := "failed to register a consumer with queue"
+		logger.Error(msg, "err", err.Error())
+		panic(msg)
 	}
 
-	logger.Info().Msg("successfully registered as a consumer")
+	logger.Info("successfully registered as a consumer")
 
 	go func() {
 		for msg := range messagesFromQueue {
@@ -436,14 +452,14 @@ func registerTMH(ctx *rabbitMQContext, routingKey string, handler TopicMessageHa
 
 			traceID := span.SpanContext().TraceID()
 			if traceID.IsValid() {
-				sublog = sublog.With().Str("traceID", traceID.String()).Logger()
+				sublog = sublog.With(slog.String("traceID", traceID.String()))
 			}
 
 			handler(ctx, msg, sublog)
 
 			err = msg.Ack(false)
 			if err != nil {
-				logger.Error().Err(err).Msg("failed to ack message delivery")
+				logger.Error("failed to ack message delivery", "err", err.Error())
 				span.RecordError(err)
 			}
 
@@ -478,7 +494,9 @@ func createMessageQueueChannel(ctx context.Context, msgctx *rabbitMQContext) (*r
 
 	go func() {
 		for evt := range msgctx.connectionClosedError {
-			msgctx.cfg.logger.Fatal().Err(evt).Msg("connection error")
+			msg := "connection error"
+			msgctx.cfg.logger.Error(msg, "err", evt.Error())
+			panic(msg)
 		}
 	}()
 
@@ -518,23 +536,23 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 		return &Error{"failed to declare command queue for " + serviceName + "!", err}
 	}
 
-	cmdlog := msgctx.cfg.logger.With().Str("queue", commandQueue.Name).Logger()
-	cmdlog.Info().Msg("declared command queue")
+	cmdlog := msgctx.cfg.logger.With(slog.String("queue", commandQueue.Name))
+	cmdlog.Info("declared command queue")
 
 	err = msgctx.channel.QueueBind(commandQueue.Name, serviceName, commandExchange, false, nil)
 	if err != nil {
 		return &Error{"failed to bind command queue " + commandQueue.Name + " to exchange " + commandExchange + "!", err}
 	}
 
-	cmdlog.Info().Msg("bound command queue to command exchange")
+	cmdlog.Info("bound command queue to command exchange")
 
 	responseQueue, err := msgctx.channel.QueueDeclare("", false, true, true, false, nil)
 	if err != nil {
 		return &Error{"failed to declare response queue for " + serviceName + "!", err}
 	}
 
-	resplog := msgctx.cfg.logger.With().Str("queue", responseQueue.Name).Logger()
-	resplog.Info().Msg("declared response queue")
+	resplog := msgctx.cfg.logger.With(slog.String("queue", responseQueue.Name))
+	resplog.Info("declared response queue")
 
 	err = msgctx.channel.QueueBind(responseQueue.Name, responseQueue.Name, commandExchange, false, nil)
 	if err != nil {
@@ -542,7 +560,7 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 		return &Error{msg, err}
 	}
 
-	resplog.Info().Msg("bound response queue to command exchange")
+	resplog.Info("bound response queue to command exchange")
 
 	commands, err := msgctx.channel.Consume(commandQueue.Name, "command-consumer", false, false, false, false, nil)
 	if err != nil {
@@ -561,10 +579,10 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 
 			traceID := span.SpanContext().TraceID()
 			if traceID.IsValid() {
-				sublog = sublog.With().Str("traceID", traceID.String()).Logger()
+				sublog = sublog.With(slog.String("traceID", traceID.String()))
 			}
 
-			sublog.Info().Str("body", string(cmd.Body)).Msg("received command")
+			sublog.Info("received command", "body", string(cmd.Body))
 
 			handler, ok := msgctx.commandHandlers[cmd.ContentType]
 			if ok {
@@ -572,7 +590,7 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 			} else {
 				err := fmt.Errorf("no handler registered for command with content type %s", cmd.ContentType)
 				span.RecordError(err)
-				sublog.Warn().Err(err).Msg("no handler")
+				sublog.Warn("no handler", "err", err.Error())
 			}
 
 			span.End()
@@ -601,11 +619,11 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 
 			traceID := span.SpanContext().TraceID()
 			if traceID.IsValid() {
-				resplog = resplog.With().Str("traceID", traceID.String()).Logger()
+				resplog = resplog.With(slog.String("traceID", traceID.String()))
 			}
 
 			// TODO: Ability to dispatch response to an application supplied response handler
-			resplog.Info().Str("body", string(response.Body)).Msg("received response")
+			resplog.Info("received response", "body", string(response.Body))
 			response.Ack(true)
 
 			span.End()
