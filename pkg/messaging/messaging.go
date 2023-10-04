@@ -459,12 +459,15 @@ func registerTMH(ctx *rabbitMQContext, routingKey string, handler TopicMessageHa
 
 			err = msg.Ack(false)
 			if err != nil {
-				logger.Error("failed to ack message delivery", "err", err.Error())
+				sublog.Error("failed to ack message delivery", "err", err.Error())
 				span.RecordError(err)
 			}
 
 			span.End()
 		}
+
+		logger.Error("topic message queue was closed")
+		os.Exit(1)
 	}()
 
 	registerComplete <- struct{}{}
@@ -595,8 +598,11 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 
 			span.End()
 
-			cmd.Ack(true)
+			cmd.Ack(false)
 		}
+
+		cmdlog.Error("command queue was closed")
+		os.Exit(1)
 	}()
 
 	responses, err := msgctx.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
@@ -624,7 +630,7 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 
 			// TODO: Ability to dispatch response to an application supplied response handler
 			resplog.Info("received response", "body", string(response.Body))
-			response.Ack(true)
+			response.Ack(false)
 
 			span.End()
 		}
