@@ -403,6 +403,7 @@ func registerTMH(ctx *rabbitMQContext, routingKey string, handler TopicMessageHa
 	)
 	if err != nil {
 		ctx.cfg.logger.Error("failed to declare a queue", "err", err.Error())
+		os.Exit(1)
 	}
 
 	logger := ctx.cfg.logger.With(
