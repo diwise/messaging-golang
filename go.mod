@@ -1,15 +1,15 @@
 module github.com/diwise/messaging-golang
 
-go 1.18
+go 1.21
 
 require (
-	github.com/rabbitmq/amqp091-go v1.3.2
-	github.com/rs/zerolog v1.26.1
-	go.opentelemetry.io/otel v1.6.1
+	github.com/rabbitmq/amqp091-go v1.8.1
+	go.opentelemetry.io/otel v1.17.0
+	go.opentelemetry.io/otel/trace v1.17.0
 )
 
 require (
-	github.com/go-logr/logr v1.2.3 // indirect
+	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	go.opentelemetry.io/otel/trace v1.6.1 // indirect
+	go.opentelemetry.io/otel/metric v1.17.0 // indirect
 )

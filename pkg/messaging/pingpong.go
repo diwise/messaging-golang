@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
+	"log/slog"
 )
 
 const (
@@ -38,7 +38,7 @@ func NewPingCommand() CommandMessage {
 // NewPingCommandHandler returns a callback function to be called when ping commands
 // are received
 func NewPingCommandHandler(ctx MsgContext) CommandHandler {
-	return func(ctx context.Context, wrapper CommandMessageWrapper, logger zerolog.Logger) error {
+	return func(ctx context.Context, wrapper CommandMessageWrapper, logger *slog.Logger) error {
 		var err error
 
 		_, span := tracer.Start(ctx, "ping-pong")
