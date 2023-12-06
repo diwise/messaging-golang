@@ -825,6 +825,7 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 	}
 
 	msgctx.commandLogger = cmdlog
+	msgctx.responseLogger = resplog
 
 	msgctx.responseQueueName = responseQueue.Name
 	msgctx.responseChannel, err = msgctx.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
