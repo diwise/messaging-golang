@@ -103,17 +103,20 @@ func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 	sublog.Info("received command", "body", string(cmd.Body))
 
 	handler, ok := rmq.commandHandlers[cmd.ContentType]
-	if ok {
-		handler(ctx, newAMQPDeliveryWrapper(rmq, cmd), sublog)
-	} else {
-		err := fmt.Errorf("no handler registered for command with content type %s", cmd.ContentType)
-		span.RecordError(err)
-		sublog.Warn("no handler", "err", err.Error())
-	}
 
-	span.End()
+	go func() {
+		if ok {
+			handler(ctx, newAMQPDeliveryWrapper(rmq, cmd), sublog)
+		} else {
+			err := fmt.Errorf("no handler registered for command with content type %s", cmd.ContentType)
+			span.RecordError(err)
+			sublog.Warn("no handler", "err", err.Error())
+		}
 
-	cmd.Ack(false)
+		span.End()
+
+		cmd.Ack(false)
+	}()
 }
 
 func (rmq *rabbitMQContext) onresponse(response *amqp.Delivery) {
