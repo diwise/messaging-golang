@@ -2,7 +2,6 @@ package messaging
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -279,12 +278,6 @@ func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command Command, 
 		span.End()
 	}()
 
-	messageBytes, err := json.Marshal(command)
-	if err != nil {
-		err = fmt.Errorf("unable to marshal command to json: (%w)", err)
-		return err
-	}
-
 	completion := make(chan error, 1)
 
 	// Enqueue this action on the command queue
@@ -294,7 +287,7 @@ func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command Command, 
 			Headers:     tracing.InjectAMQPHeaders(ctx),
 			ContentType: command.ContentType(),
 			ReplyTo:     rmq.responseQueueName,
-			Body:        messageBytes,
+			Body:        command.Body(),
 		})
 	}
 
@@ -328,19 +321,13 @@ func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response Respons
 		span.End()
 	}()
 
-	messageBytes, err := json.Marshal(response)
-	if err != nil {
-		err = fmt.Errorf("unable to marshal response to json: (%w)", err)
-		return err
-	}
-
 	completion := make(chan error, 1)
 
 	rmq.queue <- func() {
 		completion <- rmq.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
 			Headers:     tracing.InjectAMQPHeaders(ctx),
 			ContentType: response.ContentType(),
-			Body:        messageBytes,
+			Body:        response.Body(),
 		})
 	}
 
@@ -375,12 +362,6 @@ func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMes
 		span.End()
 	}()
 
-	messageBytes, err := json.Marshal(message)
-	if err != nil {
-		err = fmt.Errorf("unable to marshal topic message to json: (%w)", err)
-		return err
-	}
-
 	completion := make(chan error, 1)
 
 	rmq.queue <- func() {
@@ -388,7 +369,7 @@ func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMes
 			amqp.Publishing{
 				Headers:     tracing.InjectAMQPHeaders(ctx),
 				ContentType: message.ContentType(),
-				Body:        messageBytes,
+				Body:        message.Body(),
 			})
 	}
 
