@@ -27,11 +27,14 @@ var _ MsgContext = &MsgContextMock{}
 //			PublishOnTopicFunc: func(ctx context.Context, message TopicMessage) error {
 //				panic("mock out the PublishOnTopic method")
 //			},
-//			RegisterCommandHandlerFunc: func(contentType string, handler CommandHandler) error {
+//			RegisterCommandHandlerFunc: func(filter MessageFilter, handler CommandHandler) error {
 //				panic("mock out the RegisterCommandHandler method")
 //			},
 //			RegisterTopicMessageHandlerFunc: func(routingKey string, handler TopicMessageHandler) error {
 //				panic("mock out the RegisterTopicMessageHandler method")
+//			},
+//			RegisterTopicMessageHandlerWithFilterFunc: func(routingKey string, handler TopicMessageHandler, filter MessageFilter) error {
+//				panic("mock out the RegisterTopicMessageHandlerWithFilter method")
 //			},
 //			SendCommandToFunc: func(ctx context.Context, command Command, key string) error {
 //				panic("mock out the SendCommandTo method")
@@ -59,10 +62,13 @@ type MsgContextMock struct {
 	PublishOnTopicFunc func(ctx context.Context, message TopicMessage) error
 
 	// RegisterCommandHandlerFunc mocks the RegisterCommandHandler method.
-	RegisterCommandHandlerFunc func(contentType string, handler CommandHandler) error
+	RegisterCommandHandlerFunc func(filter MessageFilter, handler CommandHandler) error
 
 	// RegisterTopicMessageHandlerFunc mocks the RegisterTopicMessageHandler method.
 	RegisterTopicMessageHandlerFunc func(routingKey string, handler TopicMessageHandler) error
+
+	// RegisterTopicMessageHandlerWithFilterFunc mocks the RegisterTopicMessageHandlerWithFilter method.
+	RegisterTopicMessageHandlerWithFilterFunc func(routingKey string, handler TopicMessageHandler, filter MessageFilter) error
 
 	// SendCommandToFunc mocks the SendCommandTo method.
 	SendCommandToFunc func(ctx context.Context, command Command, key string) error
@@ -94,8 +100,8 @@ type MsgContextMock struct {
 		}
 		// RegisterCommandHandler holds details about calls to the RegisterCommandHandler method.
 		RegisterCommandHandler []struct {
-			// ContentType is the contentType argument value.
-			ContentType string
+			// Filter is the filter argument value.
+			Filter MessageFilter
 			// Handler is the handler argument value.
 			Handler CommandHandler
 		}
@@ -105,6 +111,15 @@ type MsgContextMock struct {
 			RoutingKey string
 			// Handler is the handler argument value.
 			Handler TopicMessageHandler
+		}
+		// RegisterTopicMessageHandlerWithFilter holds details about calls to the RegisterTopicMessageHandlerWithFilter method.
+		RegisterTopicMessageHandlerWithFilter []struct {
+			// RoutingKey is the routingKey argument value.
+			RoutingKey string
+			// Handler is the handler argument value.
+			Handler TopicMessageHandler
+			// Filter is the filter argument value.
+			Filter MessageFilter
 		}
 		// SendCommandTo holds details about calls to the SendCommandTo method.
 		SendCommandTo []struct {
@@ -128,14 +143,15 @@ type MsgContextMock struct {
 		Start []struct {
 		}
 	}
-	lockClose                       sync.RWMutex
-	lockNoteToSelf                  sync.RWMutex
-	lockPublishOnTopic              sync.RWMutex
-	lockRegisterCommandHandler      sync.RWMutex
-	lockRegisterTopicMessageHandler sync.RWMutex
-	lockSendCommandTo               sync.RWMutex
-	lockSendResponseTo              sync.RWMutex
-	lockStart                       sync.RWMutex
+	lockClose                                 sync.RWMutex
+	lockNoteToSelf                            sync.RWMutex
+	lockPublishOnTopic                        sync.RWMutex
+	lockRegisterCommandHandler                sync.RWMutex
+	lockRegisterTopicMessageHandler           sync.RWMutex
+	lockRegisterTopicMessageHandlerWithFilter sync.RWMutex
+	lockSendCommandTo                         sync.RWMutex
+	lockSendResponseTo                        sync.RWMutex
+	lockStart                                 sync.RWMutex
 }
 
 // Close calls CloseFunc.
@@ -238,21 +254,21 @@ func (mock *MsgContextMock) PublishOnTopicCalls() []struct {
 }
 
 // RegisterCommandHandler calls RegisterCommandHandlerFunc.
-func (mock *MsgContextMock) RegisterCommandHandler(contentType string, handler CommandHandler) error {
+func (mock *MsgContextMock) RegisterCommandHandler(filter MessageFilter, handler CommandHandler) error {
 	if mock.RegisterCommandHandlerFunc == nil {
 		panic("MsgContextMock.RegisterCommandHandlerFunc: method is nil but MsgContext.RegisterCommandHandler was just called")
 	}
 	callInfo := struct {
-		ContentType string
-		Handler     CommandHandler
+		Filter  MessageFilter
+		Handler CommandHandler
 	}{
-		ContentType: contentType,
-		Handler:     handler,
+		Filter:  filter,
+		Handler: handler,
 	}
 	mock.lockRegisterCommandHandler.Lock()
 	mock.calls.RegisterCommandHandler = append(mock.calls.RegisterCommandHandler, callInfo)
 	mock.lockRegisterCommandHandler.Unlock()
-	return mock.RegisterCommandHandlerFunc(contentType, handler)
+	return mock.RegisterCommandHandlerFunc(filter, handler)
 }
 
 // RegisterCommandHandlerCalls gets all the calls that were made to RegisterCommandHandler.
@@ -260,12 +276,12 @@ func (mock *MsgContextMock) RegisterCommandHandler(contentType string, handler C
 //
 //	len(mockedMsgContext.RegisterCommandHandlerCalls())
 func (mock *MsgContextMock) RegisterCommandHandlerCalls() []struct {
-	ContentType string
-	Handler     CommandHandler
+	Filter  MessageFilter
+	Handler CommandHandler
 } {
 	var calls []struct {
-		ContentType string
-		Handler     CommandHandler
+		Filter  MessageFilter
+		Handler CommandHandler
 	}
 	mock.lockRegisterCommandHandler.RLock()
 	calls = mock.calls.RegisterCommandHandler
@@ -306,6 +322,46 @@ func (mock *MsgContextMock) RegisterTopicMessageHandlerCalls() []struct {
 	mock.lockRegisterTopicMessageHandler.RLock()
 	calls = mock.calls.RegisterTopicMessageHandler
 	mock.lockRegisterTopicMessageHandler.RUnlock()
+	return calls
+}
+
+// RegisterTopicMessageHandlerWithFilter calls RegisterTopicMessageHandlerWithFilterFunc.
+func (mock *MsgContextMock) RegisterTopicMessageHandlerWithFilter(routingKey string, handler TopicMessageHandler, filter MessageFilter) error {
+	if mock.RegisterTopicMessageHandlerWithFilterFunc == nil {
+		panic("MsgContextMock.RegisterTopicMessageHandlerWithFilterFunc: method is nil but MsgContext.RegisterTopicMessageHandlerWithFilter was just called")
+	}
+	callInfo := struct {
+		RoutingKey string
+		Handler    TopicMessageHandler
+		Filter     MessageFilter
+	}{
+		RoutingKey: routingKey,
+		Handler:    handler,
+		Filter:     filter,
+	}
+	mock.lockRegisterTopicMessageHandlerWithFilter.Lock()
+	mock.calls.RegisterTopicMessageHandlerWithFilter = append(mock.calls.RegisterTopicMessageHandlerWithFilter, callInfo)
+	mock.lockRegisterTopicMessageHandlerWithFilter.Unlock()
+	return mock.RegisterTopicMessageHandlerWithFilterFunc(routingKey, handler, filter)
+}
+
+// RegisterTopicMessageHandlerWithFilterCalls gets all the calls that were made to RegisterTopicMessageHandlerWithFilter.
+// Check the length with:
+//
+//	len(mockedMsgContext.RegisterTopicMessageHandlerWithFilterCalls())
+func (mock *MsgContextMock) RegisterTopicMessageHandlerWithFilterCalls() []struct {
+	RoutingKey string
+	Handler    TopicMessageHandler
+	Filter     MessageFilter
+} {
+	var calls []struct {
+		RoutingKey string
+		Handler    TopicMessageHandler
+		Filter     MessageFilter
+	}
+	mock.lockRegisterTopicMessageHandlerWithFilter.RLock()
+	calls = mock.calls.RegisterTopicMessageHandlerWithFilter
+	mock.lockRegisterTopicMessageHandlerWithFilter.RUnlock()
 	return calls
 }
 

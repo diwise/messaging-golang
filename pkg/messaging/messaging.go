@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,12 +75,23 @@ type MsgContext interface {
 	Start()
 	Close()
 
-	RegisterCommandHandler(contentType string, handler CommandHandler) error
+	RegisterCommandHandler(filter MessageFilter, handler CommandHandler) error
 	RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) error
+	RegisterTopicMessageHandlerWithFilter(routingKey string, handler TopicMessageHandler, filter MessageFilter) error
 }
 
 // action is the type that we enqueue on our internal queue
 type action func()
+
+type cmdFilterHandlerPair struct {
+	wants MessageFilter
+	fn    CommandHandler
+}
+
+type tmhFilterHandlerPair struct {
+	wants MessageFilter
+	fn    TopicMessageHandler
+}
 
 type rabbitMQContext struct {
 	connection *amqp.Connection
@@ -88,7 +100,7 @@ type rabbitMQContext struct {
 
 	queue chan action
 
-	commandHandlers map[string]CommandHandler
+	commandHandlers []cmdFilterHandlerPair
 
 	commandQueueName string
 	commandChannel   <-chan amqp.Delivery
@@ -99,7 +111,7 @@ type rabbitMQContext struct {
 	responseLogger    *slog.Logger
 
 	topicSubscriptions   map[string]<-chan amqp.Delivery
-	topicMessageHandlers map[string][]TopicMessageHandler
+	topicMessageHandlers map[string][]tmhFilterHandlerPair
 
 	connectionClosedError chan *amqp.Error
 
@@ -120,21 +132,38 @@ func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 		sublog = sublog.With(slog.String("traceID", traceID.String()))
 	}
 
-	sublog.Info("received command", "body", string(cmd.Body))
+	sublog.Info("received command", "content-type", cmd.ContentType, "body", string(cmd.Body))
 
-	handler, ok := rmq.commandHandlers[cmd.ContentType]
+	w := newAMQPDeliveryWrapper(rmq, cmd)
+
+	wg := sync.WaitGroup{}
+	matchingHandlers := 0
+
+	for _, handler := range rmq.commandHandlers {
+		if handler.wants(w) {
+			wg.Add(1)
+			matchingHandlers++
+
+			go func(handle CommandHandler) {
+				handle(ctx, w, sublog)
+				wg.Done()
+			}(handler.fn)
+
+			// allow at most one handler to receive each command
+			break
+		}
+	}
+
+	if matchingHandlers == 0 {
+		err := fmt.Errorf("no handler registered for command")
+		span.RecordError(err)
+		sublog.Warn("no handler", "err", err.Error())
+	}
 
 	go func() {
-		if ok {
-			handler(ctx, newAMQPDeliveryWrapper(rmq, cmd), sublog)
-		} else {
-			err := fmt.Errorf("no handler registered for command with content type %s", cmd.ContentType)
-			span.RecordError(err)
-			sublog.Warn("no handler", "err", err.Error())
-		}
+		wg.Wait()
 
 		span.End()
-
 		cmd.Ack(false)
 	}()
 }
@@ -170,15 +199,17 @@ func (rmq *rabbitMQContext) onmessage(msg *amqp.Delivery, queueName, routingKey 
 	handlers := rmq.topicMessageHandlers[routingKey]
 	w := newAMQPDeliveryWrapper(rmq, msg)
 
-	// Use a waitgroup to spawn a goroutine for each topic message handler
-	// and be able to wait for their completion
+	// Use a waitgroup to spawn a goroutine for each matching topic
+	// message handler and to be able to wait for their completion
 	wg := sync.WaitGroup{}
-	for _, h := range handlers {
-		wg.Add(1)
-		go func(tmh TopicMessageHandler) {
-			tmh(ctx, w, sublog)
-			wg.Done()
-		}(h)
+	for _, handler := range handlers {
+		if handler.wants(w) {
+			wg.Add(1)
+			go func(handle TopicMessageHandler) {
+				handle(ctx, w, sublog)
+				wg.Done()
+			}(handler.fn)
+		}
 	}
 
 	// Spawn a goroutine to wait for the completion of all handlers so that we dont
@@ -402,18 +433,18 @@ func (rmq *rabbitMQContext) Start() {
 // CommandHandler is a callback type to be used for dispatching incoming commands
 type CommandHandler func(context.Context, IncomingCommand, *slog.Logger) error
 
-// RegisterCommandHandler registers a handler to be called when a command with a given
-// content type is received
-func (rmq *rabbitMQContext) RegisterCommandHandler(contentType string, handler CommandHandler) error {
+// RegisterCommandHandler registers a handler to be called when a command that matches
+// the specified filter is received
+func (rmq *rabbitMQContext) RegisterCommandHandler(filter MessageFilter, handler CommandHandler) error {
 
 	completion := make(chan error, 1)
 
 	rmq.queue <- func() {
 		if rmq.commandHandlers == nil {
-			rmq.commandHandlers = map[string]CommandHandler{}
+			rmq.commandHandlers = []cmdFilterHandlerPair{}
 		}
 
-		rmq.commandHandlers[contentType] = handler
+		rmq.commandHandlers = append(rmq.commandHandlers, cmdFilterHandlerPair{filter, handler})
 
 		completion <- nil
 	}
@@ -559,7 +590,7 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 
 		msgctx.queue = make(chan action, 32)
 		msgctx.keepRunning = &atomic.Bool{}
-		msgctx.topicMessageHandlers = map[string][]TopicMessageHandler{}
+		msgctx.topicMessageHandlers = map[string][]tmhFilterHandlerPair{}
 
 		initComplete <- msgctx
 		break
@@ -570,16 +601,40 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 // to RegisterTopicMessageHandler to receive messages from topics.
 type TopicMessageHandler func(context.Context, IncomingTopicMessage, *slog.Logger)
 
+// MessageFilter allows a subscriber to supply a filter function that
+// decides if a received message should be delivered to the handler or not
+type MessageFilter func(Message) bool
+
+// MatchContentType returns a topic message filter that returns true
+// for all messages where the content type matches the supplied regexp
+func MatchContentType(contentType string) MessageFilter {
+	matcher, err := regexp.Compile(contentType)
+	if err != nil {
+		panic(err)
+	}
+
+	return func(m Message) bool {
+		return matcher.MatchString(m.ContentType())
+	}
+}
+
 // RegisterTopicMessageHandler creates a subscription queue that is bound
 // to the topic exchange with the provided routing key, starts a consumer
 // for that queue and hands off any received messages to the provided
 // TopicMessageHandler
 func (msgctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) error {
+	return msgctx.RegisterTopicMessageHandlerWithFilter(routingKey, handler, func(Message) bool { return true })
+}
+
+func (msgctx *rabbitMQContext) RegisterTopicMessageHandlerWithFilter(routingKey string, handler TopicMessageHandler, filter MessageFilter) error {
 
 	completion := make(chan error, 1)
 
 	msgctx.queue <- func() {
-		msgctx.topicMessageHandlers[routingKey] = append(msgctx.topicMessageHandlers[routingKey], handler)
+		msgctx.topicMessageHandlers[routingKey] = append(
+			msgctx.topicMessageHandlers[routingKey],
+			tmhFilterHandlerPair{filter, handler},
+		)
 		registerTMH(msgctx, routingKey, completion)
 	}
 
@@ -767,7 +822,7 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 
 	msgctx.commandLogger = cmdlog
 
-	go msgctx.RegisterCommandHandler(PingCommandContentType, NewPingCommandHandler(msgctx))
+	go msgctx.RegisterCommandHandler(MatchContentType(PingCommandContentType), NewPingCommandHandler(msgctx))
 
 	msgctx.responseQueueName = responseQueue.Name
 	msgctx.responseChannel, err = msgctx.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
