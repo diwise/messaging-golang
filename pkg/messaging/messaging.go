@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -607,15 +606,19 @@ type TopicMessageHandler func(context.Context, IncomingTopicMessage, *slog.Logge
 type MessageFilter func(Message) bool
 
 // MatchContentType returns a topic message filter that returns true
-// for all messages where the content type matches the supplied regexp
+// for all messages where the content type matches the supplied content type
+// case insensitive
 func MatchContentType(contentType string) MessageFilter {
-	matcher, err := regexp.Compile(contentType)
-	if err != nil {
-		panic(err)
-	}
+	lowerCaseMatch := strings.ToLower(contentType)
+	matchLength := len(lowerCaseMatch)
 
 	return func(m Message) bool {
-		return matcher.MatchString(m.ContentType())
+		ct := m.ContentType()
+		if len(ct) != matchLength {
+			return false
+		}
+
+		return strings.Compare(lowerCaseMatch, strings.ToLower(ct)) == 0
 	}
 }
 
@@ -823,8 +826,6 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 
 	msgctx.commandLogger = cmdlog
 
-	go msgctx.RegisterCommandHandler(MatchContentType(PingCommandContentType), NewPingCommandHandler(msgctx))
-
 	msgctx.responseQueueName = responseQueue.Name
 	msgctx.responseChannel, err = msgctx.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
 	if err != nil {
@@ -832,6 +833,8 @@ func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext
 	}
 
 	go func() {
+		msgctx.RegisterCommandHandler(MatchContentType(PingCommandContentType), NewPingCommandHandler(msgctx))
+
 		err := msgctx.NoteToSelf(context.Background(), NewPingCommand())
 		if err != nil {
 			cmdlog.Error("failed to publish a ping command to ourselves!", "err", err.Error())
