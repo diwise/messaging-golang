@@ -29,6 +29,10 @@ func (w *amqpDeliveryWrapper) Context() context.Context {
 	return tracing.ExtractAMQPHeaders(context.Background(), w.d.Headers)
 }
 
-func (w *amqpDeliveryWrapper) RespondWith(ctx context.Context, response CommandMessage) error {
+func (w *amqpDeliveryWrapper) RespondWith(ctx context.Context, response Response) error {
 	return w.rmq.SendResponseTo(ctx, response, w.d.ReplyTo)
+}
+
+func (w *amqpDeliveryWrapper) TopicName() string {
+	return w.d.RoutingKey
 }

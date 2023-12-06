@@ -21,7 +21,7 @@ var _ MsgContext = &MsgContextMock{}
 //			CloseFunc: func()  {
 //				panic("mock out the Close method")
 //			},
-//			NoteToSelfFunc: func(ctx context.Context, command CommandMessage) error {
+//			NoteToSelfFunc: func(ctx context.Context, command Command) error {
 //				panic("mock out the NoteToSelf method")
 //			},
 //			PublishOnTopicFunc: func(ctx context.Context, message TopicMessage) error {
@@ -33,10 +33,10 @@ var _ MsgContext = &MsgContextMock{}
 //			RegisterTopicMessageHandlerFunc: func(routingKey string, handler TopicMessageHandler) error {
 //				panic("mock out the RegisterTopicMessageHandler method")
 //			},
-//			SendCommandToFunc: func(ctx context.Context, command CommandMessage, key string) error {
+//			SendCommandToFunc: func(ctx context.Context, command Command, key string) error {
 //				panic("mock out the SendCommandTo method")
 //			},
-//			SendResponseToFunc: func(ctx context.Context, response CommandMessage, key string) error {
+//			SendResponseToFunc: func(ctx context.Context, response Response, key string) error {
 //				panic("mock out the SendResponseTo method")
 //			},
 //			StartFunc: func()  {
@@ -53,7 +53,7 @@ type MsgContextMock struct {
 	CloseFunc func()
 
 	// NoteToSelfFunc mocks the NoteToSelf method.
-	NoteToSelfFunc func(ctx context.Context, command CommandMessage) error
+	NoteToSelfFunc func(ctx context.Context, command Command) error
 
 	// PublishOnTopicFunc mocks the PublishOnTopic method.
 	PublishOnTopicFunc func(ctx context.Context, message TopicMessage) error
@@ -65,10 +65,10 @@ type MsgContextMock struct {
 	RegisterTopicMessageHandlerFunc func(routingKey string, handler TopicMessageHandler) error
 
 	// SendCommandToFunc mocks the SendCommandTo method.
-	SendCommandToFunc func(ctx context.Context, command CommandMessage, key string) error
+	SendCommandToFunc func(ctx context.Context, command Command, key string) error
 
 	// SendResponseToFunc mocks the SendResponseTo method.
-	SendResponseToFunc func(ctx context.Context, response CommandMessage, key string) error
+	SendResponseToFunc func(ctx context.Context, response Response, key string) error
 
 	// StartFunc mocks the Start method.
 	StartFunc func()
@@ -83,7 +83,7 @@ type MsgContextMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Command is the command argument value.
-			Command CommandMessage
+			Command Command
 		}
 		// PublishOnTopic holds details about calls to the PublishOnTopic method.
 		PublishOnTopic []struct {
@@ -111,7 +111,7 @@ type MsgContextMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Command is the command argument value.
-			Command CommandMessage
+			Command Command
 			// Key is the key argument value.
 			Key string
 		}
@@ -120,7 +120,7 @@ type MsgContextMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Response is the response argument value.
-			Response CommandMessage
+			Response Response
 			// Key is the key argument value.
 			Key string
 		}
@@ -166,13 +166,13 @@ func (mock *MsgContextMock) CloseCalls() []struct {
 }
 
 // NoteToSelf calls NoteToSelfFunc.
-func (mock *MsgContextMock) NoteToSelf(ctx context.Context, command CommandMessage) error {
+func (mock *MsgContextMock) NoteToSelf(ctx context.Context, command Command) error {
 	if mock.NoteToSelfFunc == nil {
 		panic("MsgContextMock.NoteToSelfFunc: method is nil but MsgContext.NoteToSelf was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Command CommandMessage
+		Command Command
 	}{
 		Ctx:     ctx,
 		Command: command,
@@ -189,11 +189,11 @@ func (mock *MsgContextMock) NoteToSelf(ctx context.Context, command CommandMessa
 //	len(mockedMsgContext.NoteToSelfCalls())
 func (mock *MsgContextMock) NoteToSelfCalls() []struct {
 	Ctx     context.Context
-	Command CommandMessage
+	Command Command
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Command CommandMessage
+		Command Command
 	}
 	mock.lockNoteToSelf.RLock()
 	calls = mock.calls.NoteToSelf
@@ -310,13 +310,13 @@ func (mock *MsgContextMock) RegisterTopicMessageHandlerCalls() []struct {
 }
 
 // SendCommandTo calls SendCommandToFunc.
-func (mock *MsgContextMock) SendCommandTo(ctx context.Context, command CommandMessage, key string) error {
+func (mock *MsgContextMock) SendCommandTo(ctx context.Context, command Command, key string) error {
 	if mock.SendCommandToFunc == nil {
 		panic("MsgContextMock.SendCommandToFunc: method is nil but MsgContext.SendCommandTo was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Command CommandMessage
+		Command Command
 		Key     string
 	}{
 		Ctx:     ctx,
@@ -335,12 +335,12 @@ func (mock *MsgContextMock) SendCommandTo(ctx context.Context, command CommandMe
 //	len(mockedMsgContext.SendCommandToCalls())
 func (mock *MsgContextMock) SendCommandToCalls() []struct {
 	Ctx     context.Context
-	Command CommandMessage
+	Command Command
 	Key     string
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Command CommandMessage
+		Command Command
 		Key     string
 	}
 	mock.lockSendCommandTo.RLock()
@@ -350,13 +350,13 @@ func (mock *MsgContextMock) SendCommandToCalls() []struct {
 }
 
 // SendResponseTo calls SendResponseToFunc.
-func (mock *MsgContextMock) SendResponseTo(ctx context.Context, response CommandMessage, key string) error {
+func (mock *MsgContextMock) SendResponseTo(ctx context.Context, response Response, key string) error {
 	if mock.SendResponseToFunc == nil {
 		panic("MsgContextMock.SendResponseToFunc: method is nil but MsgContext.SendResponseTo was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
-		Response CommandMessage
+		Response Response
 		Key      string
 	}{
 		Ctx:      ctx,
@@ -375,12 +375,12 @@ func (mock *MsgContextMock) SendResponseTo(ctx context.Context, response Command
 //	len(mockedMsgContext.SendResponseToCalls())
 func (mock *MsgContextMock) SendResponseToCalls() []struct {
 	Ctx      context.Context
-	Response CommandMessage
+	Response Response
 	Key      string
 } {
 	var calls []struct {
 		Ctx      context.Context
-		Response CommandMessage
+		Response Response
 		Key      string
 	}
 	mock.lockSendResponseTo.RLock()

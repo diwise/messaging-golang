@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/diwise/messaging-golang/pkg/messaging"
-	amqp "github.com/rabbitmq/amqp091-go"
 
 	"log/slog"
 )
@@ -15,12 +14,14 @@ type TestMessage struct{}
 
 func (m *TestMessage) ContentType() string { return "application/json" }
 func (m *TestMessage) TopicName() string   { return "test.topic" }
+func (m *TestMessage) Body() []byte        { return []byte{} }
 
-func messageHandler(ctx context.Context, message amqp.Delivery, logger *slog.Logger) {
-	logger.Info("message received from queue", "body", string(message.Body))
+func messageHandler(ctx context.Context, message messaging.IncomingTopicMessage, logger *slog.Logger) {
+	body := message.Body()
+	logger.Info("message received from queue", "body", string(body))
 	msg := &TestMessage{}
 
-	err := json.Unmarshal(message.Body, msg)
+	err := json.Unmarshal(body, msg)
 	if err != nil {
 		logger.Error("failed to unmarshal message", "err", err.Error())
 	}
