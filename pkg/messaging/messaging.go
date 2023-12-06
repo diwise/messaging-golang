@@ -532,12 +532,6 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 // to RegisterTopicMessageHandler to receive messages from topics.
 type TopicMessageHandler func(context.Context, amqp.Delivery, *slog.Logger)
 
-type TopicMessageFilter func() bool
-
-func ContentType(content string) TopicMessageFilter {
-	return func() bool { return true }
-}
-
 // RegisterTopicMessageHandler creates a subscription queue that is bound
 // to the topic exchange with the provided routing key, starts a consumer
 // for that queue and hands off any received messages to the provided
