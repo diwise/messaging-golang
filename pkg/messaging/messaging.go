@@ -591,6 +591,7 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 		msgctx.queue = make(chan action, 32)
 		msgctx.keepRunning = &atomic.Bool{}
 		msgctx.topicMessageHandlers = map[string][]tmhFilterHandlerPair{}
+		msgctx.topicSubscriptions = map[string]<-chan amqp.Delivery{}
 
 		initComplete <- msgctx
 		break
