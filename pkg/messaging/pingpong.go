@@ -28,17 +28,19 @@ func (cmd PingCommand) ContentType() string {
 }
 
 // NewPingCommand instantiates a new ping command
-func NewPingCommand() CommandMessage {
-	return PingCommand{
+func NewPingCommand() Command {
+	m, _ := NewMessageJSON(PingCommandContentType, PingCommand{
 		Cmd:       "ping",
 		Timestamp: time.Now().UTC(),
-	}
+	})
+
+	return m
 }
 
 // NewPingCommandHandler returns a callback function to be called when ping commands
 // are received
 func NewPingCommandHandler(ctx MsgContext) CommandHandler {
-	return func(ctx context.Context, wrapper CommandMessageWrapper, logger *slog.Logger) error {
+	return func(ctx context.Context, cmd IncomingCommand, logger *slog.Logger) error {
 		var err error
 
 		_, span := tracer.Start(ctx, "ping-pong")
@@ -50,9 +52,9 @@ func NewPingCommandHandler(ctx MsgContext) CommandHandler {
 		}()
 
 		ping := PingCommand{}
-		_ = json.Unmarshal(wrapper.Body(), &ping)
+		_ = json.Unmarshal(cmd.Body(), &ping)
 
-		err = wrapper.RespondWith(wrapper.Context(), NewPongResponse(ping))
+		err = cmd.RespondWith(cmd.Context(), NewPongResponse(ping))
 		if err != nil {
 			err = fmt.Errorf("failed to publish a pong response to ourselves! : %s", err.Error())
 			return err
@@ -75,10 +77,11 @@ func (cmd PongResponse) ContentType() string {
 }
 
 // NewPongResponse instantiates a new pong response from a ping command
-func NewPongResponse(ping PingCommand) CommandMessage {
-	return PongResponse{
+func NewPongResponse(ping PingCommand) Response {
+	r, _ := NewMessageJSON(PongResponseContentType, PongResponse{
 		Cmd:       "pong",
 		PingSent:  ping.Timestamp,
 		Timestamp: time.Now().UTC(),
-	}
+	})
+	return r
 }

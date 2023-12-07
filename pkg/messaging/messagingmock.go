@@ -8,64 +8,76 @@ import (
 	"sync"
 )
 
-// Ensure, that ContextMock does implement Context.
+// Ensure, that MsgContextMock does implement MsgContext.
 // If this is not the case, regenerate this file with moq.
 var _ MsgContext = &MsgContextMock{}
 
 // MsgContextMock is a mock implementation of MsgContext.
 //
-// 	func TestSomethingThatUsesContext(t *testing.T) {
+//	func TestSomethingThatUsesMsgContext(t *testing.T) {
 //
-// 		// make and configure a mocked Context
-// 		mockedContext := &ContextMock{
-// 			CloseFunc: func()  {
-// 				panic("mock out the Close method")
-// 			},
-// 			NoteToSelfFunc: func(ctx context.Context, command CommandMessage) error {
-// 				panic("mock out the NoteToSelf method")
-// 			},
-// 			PublishOnTopicFunc: func(ctx context.Context, message TopicMessage) error {
-// 				panic("mock out the PublishOnTopic method")
-// 			},
-// 			RegisterCommandHandlerFunc: func(contentType string, handler CommandHandler) error {
-// 				panic("mock out the RegisterCommandHandler method")
-// 			},
-// 			RegisterTopicMessageHandlerFunc: func(routingKey string, handler TopicMessageHandler)  {
-// 				panic("mock out the RegisterTopicMessageHandler method")
-// 			},
-// 			SendCommandToFunc: func(ctx context.Context, command CommandMessage, key string) error {
-// 				panic("mock out the SendCommandTo method")
-// 			},
-// 			SendResponseToFunc: func(ctx context.Context, response CommandMessage, key string) error {
-// 				panic("mock out the SendResponseTo method")
-// 			},
-// 		}
+//		// make and configure a mocked MsgContext
+//		mockedMsgContext := &MsgContextMock{
+//			CloseFunc: func()  {
+//				panic("mock out the Close method")
+//			},
+//			NoteToSelfFunc: func(ctx context.Context, command Command) error {
+//				panic("mock out the NoteToSelf method")
+//			},
+//			PublishOnTopicFunc: func(ctx context.Context, message TopicMessage) error {
+//				panic("mock out the PublishOnTopic method")
+//			},
+//			RegisterCommandHandlerFunc: func(filter MessageFilter, handler CommandHandler) error {
+//				panic("mock out the RegisterCommandHandler method")
+//			},
+//			RegisterTopicMessageHandlerFunc: func(routingKey string, handler TopicMessageHandler) error {
+//				panic("mock out the RegisterTopicMessageHandler method")
+//			},
+//			RegisterTopicMessageHandlerWithFilterFunc: func(routingKey string, handler TopicMessageHandler, filter MessageFilter) error {
+//				panic("mock out the RegisterTopicMessageHandlerWithFilter method")
+//			},
+//			SendCommandToFunc: func(ctx context.Context, command Command, key string) error {
+//				panic("mock out the SendCommandTo method")
+//			},
+//			SendResponseToFunc: func(ctx context.Context, response Response, key string) error {
+//				panic("mock out the SendResponseTo method")
+//			},
+//			StartFunc: func()  {
+//				panic("mock out the Start method")
+//			},
+//		}
 //
-// 		// use mockedContext in code that requires Context
-// 		// and then make assertions.
+//		// use mockedMsgContext in code that requires MsgContext
+//		// and then make assertions.
 //
-// 	}
+//	}
 type MsgContextMock struct {
 	// CloseFunc mocks the Close method.
 	CloseFunc func()
 
 	// NoteToSelfFunc mocks the NoteToSelf method.
-	NoteToSelfFunc func(ctx context.Context, command CommandMessage) error
+	NoteToSelfFunc func(ctx context.Context, command Command) error
 
 	// PublishOnTopicFunc mocks the PublishOnTopic method.
 	PublishOnTopicFunc func(ctx context.Context, message TopicMessage) error
 
 	// RegisterCommandHandlerFunc mocks the RegisterCommandHandler method.
-	RegisterCommandHandlerFunc func(contentType string, handler CommandHandler) error
+	RegisterCommandHandlerFunc func(filter MessageFilter, handler CommandHandler) error
 
 	// RegisterTopicMessageHandlerFunc mocks the RegisterTopicMessageHandler method.
-	RegisterTopicMessageHandlerFunc func(routingKey string, handler TopicMessageHandler)
+	RegisterTopicMessageHandlerFunc func(routingKey string, handler TopicMessageHandler) error
+
+	// RegisterTopicMessageHandlerWithFilterFunc mocks the RegisterTopicMessageHandlerWithFilter method.
+	RegisterTopicMessageHandlerWithFilterFunc func(routingKey string, handler TopicMessageHandler, filter MessageFilter) error
 
 	// SendCommandToFunc mocks the SendCommandTo method.
-	SendCommandToFunc func(ctx context.Context, command CommandMessage, key string) error
+	SendCommandToFunc func(ctx context.Context, command Command, key string) error
 
 	// SendResponseToFunc mocks the SendResponseTo method.
-	SendResponseToFunc func(ctx context.Context, response CommandMessage, key string) error
+	SendResponseToFunc func(ctx context.Context, response Response, key string) error
+
+	// StartFunc mocks the Start method.
+	StartFunc func()
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -74,20 +86,22 @@ type MsgContextMock struct {
 		}
 		// NoteToSelf holds details about calls to the NoteToSelf method.
 		NoteToSelf []struct {
+			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Command is the command argument value.
-			Command CommandMessage
+			Command Command
 		}
 		// PublishOnTopic holds details about calls to the PublishOnTopic method.
 		PublishOnTopic []struct {
+			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Message is the message argument value.
 			Message TopicMessage
 		}
 		// RegisterCommandHandler holds details about calls to the RegisterCommandHandler method.
 		RegisterCommandHandler []struct {
-			// ContentType is the contentType argument value.
-			ContentType string
+			// Filter is the filter argument value.
+			Filter MessageFilter
 			// Handler is the handler argument value.
 			Handler CommandHandler
 		}
@@ -98,48 +112,65 @@ type MsgContextMock struct {
 			// Handler is the handler argument value.
 			Handler TopicMessageHandler
 		}
+		// RegisterTopicMessageHandlerWithFilter holds details about calls to the RegisterTopicMessageHandlerWithFilter method.
+		RegisterTopicMessageHandlerWithFilter []struct {
+			// RoutingKey is the routingKey argument value.
+			RoutingKey string
+			// Handler is the handler argument value.
+			Handler TopicMessageHandler
+			// Filter is the filter argument value.
+			Filter MessageFilter
+		}
 		// SendCommandTo holds details about calls to the SendCommandTo method.
 		SendCommandTo []struct {
+			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Command is the command argument value.
-			Command CommandMessage
+			Command Command
 			// Key is the key argument value.
 			Key string
 		}
 		// SendResponseTo holds details about calls to the SendResponseTo method.
 		SendResponseTo []struct {
+			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Response is the response argument value.
-			Response CommandMessage
+			Response Response
 			// Key is the key argument value.
 			Key string
 		}
+		// Start holds details about calls to the Start method.
+		Start []struct {
+		}
 	}
-	lockClose                       sync.RWMutex
-	lockNoteToSelf                  sync.RWMutex
-	lockPublishOnTopic              sync.RWMutex
-	lockRegisterCommandHandler      sync.RWMutex
-	lockRegisterTopicMessageHandler sync.RWMutex
-	lockSendCommandTo               sync.RWMutex
-	lockSendResponseTo              sync.RWMutex
+	lockClose                                 sync.RWMutex
+	lockNoteToSelf                            sync.RWMutex
+	lockPublishOnTopic                        sync.RWMutex
+	lockRegisterCommandHandler                sync.RWMutex
+	lockRegisterTopicMessageHandler           sync.RWMutex
+	lockRegisterTopicMessageHandlerWithFilter sync.RWMutex
+	lockSendCommandTo                         sync.RWMutex
+	lockSendResponseTo                        sync.RWMutex
+	lockStart                                 sync.RWMutex
 }
 
 // Close calls CloseFunc.
 func (mock *MsgContextMock) Close() {
+	if mock.CloseFunc == nil {
+		panic("MsgContextMock.CloseFunc: method is nil but MsgContext.Close was just called")
+	}
 	callInfo := struct {
 	}{}
 	mock.lockClose.Lock()
 	mock.calls.Close = append(mock.calls.Close, callInfo)
 	mock.lockClose.Unlock()
-	if mock.CloseFunc == nil {
-		return
-	}
 	mock.CloseFunc()
 }
 
 // CloseCalls gets all the calls that were made to Close.
 // Check the length with:
-//     len(mockedContext.CloseCalls())
+//
+//	len(mockedMsgContext.CloseCalls())
 func (mock *MsgContextMock) CloseCalls() []struct {
 } {
 	var calls []struct {
@@ -151,10 +182,13 @@ func (mock *MsgContextMock) CloseCalls() []struct {
 }
 
 // NoteToSelf calls NoteToSelfFunc.
-func (mock *MsgContextMock) NoteToSelf(ctx context.Context, command CommandMessage) error {
+func (mock *MsgContextMock) NoteToSelf(ctx context.Context, command Command) error {
+	if mock.NoteToSelfFunc == nil {
+		panic("MsgContextMock.NoteToSelfFunc: method is nil but MsgContext.NoteToSelf was just called")
+	}
 	callInfo := struct {
 		Ctx     context.Context
-		Command CommandMessage
+		Command Command
 	}{
 		Ctx:     ctx,
 		Command: command,
@@ -162,25 +196,20 @@ func (mock *MsgContextMock) NoteToSelf(ctx context.Context, command CommandMessa
 	mock.lockNoteToSelf.Lock()
 	mock.calls.NoteToSelf = append(mock.calls.NoteToSelf, callInfo)
 	mock.lockNoteToSelf.Unlock()
-	if mock.NoteToSelfFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
 	return mock.NoteToSelfFunc(ctx, command)
 }
 
 // NoteToSelfCalls gets all the calls that were made to NoteToSelf.
 // Check the length with:
-//     len(mockedContext.NoteToSelfCalls())
+//
+//	len(mockedMsgContext.NoteToSelfCalls())
 func (mock *MsgContextMock) NoteToSelfCalls() []struct {
 	Ctx     context.Context
-	Command CommandMessage
+	Command Command
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Command CommandMessage
+		Command Command
 	}
 	mock.lockNoteToSelf.RLock()
 	calls = mock.calls.NoteToSelf
@@ -190,6 +219,9 @@ func (mock *MsgContextMock) NoteToSelfCalls() []struct {
 
 // PublishOnTopic calls PublishOnTopicFunc.
 func (mock *MsgContextMock) PublishOnTopic(ctx context.Context, message TopicMessage) error {
+	if mock.PublishOnTopicFunc == nil {
+		panic("MsgContextMock.PublishOnTopicFunc: method is nil but MsgContext.PublishOnTopic was just called")
+	}
 	callInfo := struct {
 		Ctx     context.Context
 		Message TopicMessage
@@ -200,18 +232,13 @@ func (mock *MsgContextMock) PublishOnTopic(ctx context.Context, message TopicMes
 	mock.lockPublishOnTopic.Lock()
 	mock.calls.PublishOnTopic = append(mock.calls.PublishOnTopic, callInfo)
 	mock.lockPublishOnTopic.Unlock()
-	if mock.PublishOnTopicFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
 	return mock.PublishOnTopicFunc(ctx, message)
 }
 
 // PublishOnTopicCalls gets all the calls that were made to PublishOnTopic.
 // Check the length with:
-//     len(mockedContext.PublishOnTopicCalls())
+//
+//	len(mockedMsgContext.PublishOnTopicCalls())
 func (mock *MsgContextMock) PublishOnTopicCalls() []struct {
 	Ctx     context.Context
 	Message TopicMessage
@@ -227,36 +254,34 @@ func (mock *MsgContextMock) PublishOnTopicCalls() []struct {
 }
 
 // RegisterCommandHandler calls RegisterCommandHandlerFunc.
-func (mock *MsgContextMock) RegisterCommandHandler(contentType string, handler CommandHandler) error {
+func (mock *MsgContextMock) RegisterCommandHandler(filter MessageFilter, handler CommandHandler) error {
+	if mock.RegisterCommandHandlerFunc == nil {
+		panic("MsgContextMock.RegisterCommandHandlerFunc: method is nil but MsgContext.RegisterCommandHandler was just called")
+	}
 	callInfo := struct {
-		ContentType string
-		Handler     CommandHandler
+		Filter  MessageFilter
+		Handler CommandHandler
 	}{
-		ContentType: contentType,
-		Handler:     handler,
+		Filter:  filter,
+		Handler: handler,
 	}
 	mock.lockRegisterCommandHandler.Lock()
 	mock.calls.RegisterCommandHandler = append(mock.calls.RegisterCommandHandler, callInfo)
 	mock.lockRegisterCommandHandler.Unlock()
-	if mock.RegisterCommandHandlerFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.RegisterCommandHandlerFunc(contentType, handler)
+	return mock.RegisterCommandHandlerFunc(filter, handler)
 }
 
 // RegisterCommandHandlerCalls gets all the calls that were made to RegisterCommandHandler.
 // Check the length with:
-//     len(mockedContext.RegisterCommandHandlerCalls())
+//
+//	len(mockedMsgContext.RegisterCommandHandlerCalls())
 func (mock *MsgContextMock) RegisterCommandHandlerCalls() []struct {
-	ContentType string
-	Handler     CommandHandler
+	Filter  MessageFilter
+	Handler CommandHandler
 } {
 	var calls []struct {
-		ContentType string
-		Handler     CommandHandler
+		Filter  MessageFilter
+		Handler CommandHandler
 	}
 	mock.lockRegisterCommandHandler.RLock()
 	calls = mock.calls.RegisterCommandHandler
@@ -265,7 +290,10 @@ func (mock *MsgContextMock) RegisterCommandHandlerCalls() []struct {
 }
 
 // RegisterTopicMessageHandler calls RegisterTopicMessageHandlerFunc.
-func (mock *MsgContextMock) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) {
+func (mock *MsgContextMock) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) error {
+	if mock.RegisterTopicMessageHandlerFunc == nil {
+		panic("MsgContextMock.RegisterTopicMessageHandlerFunc: method is nil but MsgContext.RegisterTopicMessageHandler was just called")
+	}
 	callInfo := struct {
 		RoutingKey string
 		Handler    TopicMessageHandler
@@ -276,15 +304,13 @@ func (mock *MsgContextMock) RegisterTopicMessageHandler(routingKey string, handl
 	mock.lockRegisterTopicMessageHandler.Lock()
 	mock.calls.RegisterTopicMessageHandler = append(mock.calls.RegisterTopicMessageHandler, callInfo)
 	mock.lockRegisterTopicMessageHandler.Unlock()
-	if mock.RegisterTopicMessageHandlerFunc == nil {
-		return
-	}
-	mock.RegisterTopicMessageHandlerFunc(routingKey, handler)
+	return mock.RegisterTopicMessageHandlerFunc(routingKey, handler)
 }
 
 // RegisterTopicMessageHandlerCalls gets all the calls that were made to RegisterTopicMessageHandler.
 // Check the length with:
-//     len(mockedContext.RegisterTopicMessageHandlerCalls())
+//
+//	len(mockedMsgContext.RegisterTopicMessageHandlerCalls())
 func (mock *MsgContextMock) RegisterTopicMessageHandlerCalls() []struct {
 	RoutingKey string
 	Handler    TopicMessageHandler
@@ -299,11 +325,54 @@ func (mock *MsgContextMock) RegisterTopicMessageHandlerCalls() []struct {
 	return calls
 }
 
+// RegisterTopicMessageHandlerWithFilter calls RegisterTopicMessageHandlerWithFilterFunc.
+func (mock *MsgContextMock) RegisterTopicMessageHandlerWithFilter(routingKey string, handler TopicMessageHandler, filter MessageFilter) error {
+	if mock.RegisterTopicMessageHandlerWithFilterFunc == nil {
+		panic("MsgContextMock.RegisterTopicMessageHandlerWithFilterFunc: method is nil but MsgContext.RegisterTopicMessageHandlerWithFilter was just called")
+	}
+	callInfo := struct {
+		RoutingKey string
+		Handler    TopicMessageHandler
+		Filter     MessageFilter
+	}{
+		RoutingKey: routingKey,
+		Handler:    handler,
+		Filter:     filter,
+	}
+	mock.lockRegisterTopicMessageHandlerWithFilter.Lock()
+	mock.calls.RegisterTopicMessageHandlerWithFilter = append(mock.calls.RegisterTopicMessageHandlerWithFilter, callInfo)
+	mock.lockRegisterTopicMessageHandlerWithFilter.Unlock()
+	return mock.RegisterTopicMessageHandlerWithFilterFunc(routingKey, handler, filter)
+}
+
+// RegisterTopicMessageHandlerWithFilterCalls gets all the calls that were made to RegisterTopicMessageHandlerWithFilter.
+// Check the length with:
+//
+//	len(mockedMsgContext.RegisterTopicMessageHandlerWithFilterCalls())
+func (mock *MsgContextMock) RegisterTopicMessageHandlerWithFilterCalls() []struct {
+	RoutingKey string
+	Handler    TopicMessageHandler
+	Filter     MessageFilter
+} {
+	var calls []struct {
+		RoutingKey string
+		Handler    TopicMessageHandler
+		Filter     MessageFilter
+	}
+	mock.lockRegisterTopicMessageHandlerWithFilter.RLock()
+	calls = mock.calls.RegisterTopicMessageHandlerWithFilter
+	mock.lockRegisterTopicMessageHandlerWithFilter.RUnlock()
+	return calls
+}
+
 // SendCommandTo calls SendCommandToFunc.
-func (mock *MsgContextMock) SendCommandTo(ctx context.Context, command CommandMessage, key string) error {
+func (mock *MsgContextMock) SendCommandTo(ctx context.Context, command Command, key string) error {
+	if mock.SendCommandToFunc == nil {
+		panic("MsgContextMock.SendCommandToFunc: method is nil but MsgContext.SendCommandTo was just called")
+	}
 	callInfo := struct {
 		Ctx     context.Context
-		Command CommandMessage
+		Command Command
 		Key     string
 	}{
 		Ctx:     ctx,
@@ -313,26 +382,21 @@ func (mock *MsgContextMock) SendCommandTo(ctx context.Context, command CommandMe
 	mock.lockSendCommandTo.Lock()
 	mock.calls.SendCommandTo = append(mock.calls.SendCommandTo, callInfo)
 	mock.lockSendCommandTo.Unlock()
-	if mock.SendCommandToFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
 	return mock.SendCommandToFunc(ctx, command, key)
 }
 
 // SendCommandToCalls gets all the calls that were made to SendCommandTo.
 // Check the length with:
-//     len(mockedContext.SendCommandToCalls())
+//
+//	len(mockedMsgContext.SendCommandToCalls())
 func (mock *MsgContextMock) SendCommandToCalls() []struct {
 	Ctx     context.Context
-	Command CommandMessage
+	Command Command
 	Key     string
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Command CommandMessage
+		Command Command
 		Key     string
 	}
 	mock.lockSendCommandTo.RLock()
@@ -342,10 +406,13 @@ func (mock *MsgContextMock) SendCommandToCalls() []struct {
 }
 
 // SendResponseTo calls SendResponseToFunc.
-func (mock *MsgContextMock) SendResponseTo(ctx context.Context, response CommandMessage, key string) error {
+func (mock *MsgContextMock) SendResponseTo(ctx context.Context, response Response, key string) error {
+	if mock.SendResponseToFunc == nil {
+		panic("MsgContextMock.SendResponseToFunc: method is nil but MsgContext.SendResponseTo was just called")
+	}
 	callInfo := struct {
 		Ctx      context.Context
-		Response CommandMessage
+		Response Response
 		Key      string
 	}{
 		Ctx:      ctx,
@@ -355,30 +422,52 @@ func (mock *MsgContextMock) SendResponseTo(ctx context.Context, response Command
 	mock.lockSendResponseTo.Lock()
 	mock.calls.SendResponseTo = append(mock.calls.SendResponseTo, callInfo)
 	mock.lockSendResponseTo.Unlock()
-	if mock.SendResponseToFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
 	return mock.SendResponseToFunc(ctx, response, key)
 }
 
 // SendResponseToCalls gets all the calls that were made to SendResponseTo.
 // Check the length with:
-//     len(mockedContext.SendResponseToCalls())
+//
+//	len(mockedMsgContext.SendResponseToCalls())
 func (mock *MsgContextMock) SendResponseToCalls() []struct {
 	Ctx      context.Context
-	Response CommandMessage
+	Response Response
 	Key      string
 } {
 	var calls []struct {
 		Ctx      context.Context
-		Response CommandMessage
+		Response Response
 		Key      string
 	}
 	mock.lockSendResponseTo.RLock()
 	calls = mock.calls.SendResponseTo
 	mock.lockSendResponseTo.RUnlock()
+	return calls
+}
+
+// Start calls StartFunc.
+func (mock *MsgContextMock) Start() {
+	if mock.StartFunc == nil {
+		panic("MsgContextMock.StartFunc: method is nil but MsgContext.Start was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockStart.Lock()
+	mock.calls.Start = append(mock.calls.Start, callInfo)
+	mock.lockStart.Unlock()
+	mock.StartFunc()
+}
+
+// StartCalls gets all the calls that were made to Start.
+// Check the length with:
+//
+//	len(mockedMsgContext.StartCalls())
+func (mock *MsgContextMock) StartCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockStart.RLock()
+	calls = mock.calls.Start
+	mock.lockStart.RUnlock()
 	return calls
 }

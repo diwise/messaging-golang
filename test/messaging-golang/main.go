@@ -6,17 +6,22 @@ import (
 	"time"
 
 	"github.com/diwise/messaging-golang/pkg/messaging"
-	"github.com/diwise/messaging-golang/pkg/messaging/telemetry"
-	amqp "github.com/rabbitmq/amqp091-go"
 
 	"log/slog"
 )
 
-func messageHandler(ctx context.Context, message amqp.Delivery, logger *slog.Logger) {
-	logger.Info("message received from queue", "body", string(message.Body))
-	msg := &telemetry.Temperature{}
+type TestMessage struct{}
 
-	err := json.Unmarshal(message.Body, msg)
+func (m *TestMessage) ContentType() string { return "application/json" }
+func (m *TestMessage) TopicName() string   { return "test.topic" }
+func (m *TestMessage) Body() []byte        { return []byte{} }
+
+func messageHandler(ctx context.Context, message messaging.IncomingTopicMessage, logger *slog.Logger) {
+	body := message.Body()
+	logger.Info("message received from queue", "body", string(body))
+	msg := &TestMessage{}
+
+	err := json.Unmarshal(body, msg)
 	if err != nil {
 		logger.Error("failed to unmarshal message", "err", err.Error())
 	}
@@ -35,13 +40,10 @@ func main() {
 	messenger, _ := messaging.Initialize(ctx, config)
 	defer messenger.Close()
 
-	testMessage := &telemetry.Temperature{
-		Temp: 37.0,
-	}
+	msg := &TestMessage{}
 
-	messenger.RegisterTopicMessageHandler(testMessage.TopicName(), messageHandler)
-	messenger.PublishOnTopic(context.Background(), testMessage)
+	messenger.RegisterTopicMessageHandler(msg.TopicName(), messageHandler)
+	messenger.PublishOnTopic(ctx, msg)
 
 	time.Sleep(5 * time.Second)
-
 }
