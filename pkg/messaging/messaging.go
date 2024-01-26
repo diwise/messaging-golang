@@ -163,8 +163,9 @@ func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 		wg.Wait()
 
 		span.End()
-		cmd.Ack(false)
 	}()
+
+	cmd.Ack(false)
 }
 
 func (rmq *rabbitMQContext) onresponse(response *amqp.Delivery) {
@@ -216,14 +217,10 @@ func (rmq *rabbitMQContext) onmessage(msg *amqp.Delivery, queueName, routingKey 
 	go func() {
 		wg.Wait()
 
-		err := msg.Ack(false)
-		if err != nil {
-			sublog.Error("failed to ack message delivery", "err", err.Error())
-			span.RecordError(err)
-		}
-
 		span.End()
 	}()
+
+	msg.Ack(false)
 }
 
 func (rmq *rabbitMQContext) run() {
