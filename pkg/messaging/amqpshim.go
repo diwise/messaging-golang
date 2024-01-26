@@ -16,6 +16,10 @@ func newAMQPDeliveryWrapper(ctx MsgContext, d *amqp.Delivery) *amqpDeliveryWrapp
 	return &amqpDeliveryWrapper{rmq: ctx, d: d}
 }
 
+func (w *amqpDeliveryWrapper) Ack(ack bool) error {
+	return w.d.Ack(ack)
+}
+
 func (w *amqpDeliveryWrapper) Body() []byte {
 	return w.d.Body
 }
@@ -27,6 +31,10 @@ func (w *amqpDeliveryWrapper) ContentType() string {
 func (w *amqpDeliveryWrapper) Context() context.Context {
 	// TODO: Extract trace context from headers
 	return tracing.ExtractAMQPHeaders(context.Background(), w.d.Headers)
+}
+
+func (w *amqpDeliveryWrapper) Headers() map[string]any {
+	return w.d.Headers
 }
 
 func (w *amqpDeliveryWrapper) RespondWith(ctx context.Context, response Response) error {

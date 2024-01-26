@@ -32,6 +32,14 @@ type Config struct {
 	logger      *slog.Logger
 }
 
+type Acknowledgeable interface {
+	Ack(bool) error
+}
+
+type Incoming interface {
+	Headers() map[string]interface{}
+}
+
 type Message interface {
 	Body() []byte
 	ContentType() string
@@ -45,11 +53,27 @@ type Response interface {
 	Message
 }
 
+type IncomingResponse interface {
+	Incoming
+	Response
+}
+
+type AcknowledgeableIncomingResponse interface {
+	Acknowledgeable
+	IncomingResponse
+}
+
 // Command is an interface used when handling commands
 type IncomingCommand interface {
-	Message
+	Incoming
+	Command
 	Context() context.Context
 	RespondWith(context.Context, Response) error
+}
+
+type AcknowledgeableIncomingCommand interface {
+	Acknowledgeable
+	IncomingCommand
 }
 
 // TopicMessage is an interface used when sending messages to make sure
@@ -60,7 +84,13 @@ type TopicMessage interface {
 }
 
 type IncomingTopicMessage interface {
+	Incoming
 	TopicMessage
+}
+
+type AcknowledgeableIncomingTopicMessage interface {
+	Acknowledgeable
+	IncomingTopicMessage
 }
 
 // MsgContext encapsulates the underlying messaging primitives, as well as
@@ -92,7 +122,7 @@ type tmhFilterHandlerPair struct {
 	fn    TopicMessageHandler
 }
 
-type rabbitMQContext struct {
+type messagingContext struct {
 	connection *amqp.Connection
 	channel    *amqp.Channel
 	cfg        Config
@@ -102,14 +132,14 @@ type rabbitMQContext struct {
 	commandHandlers []cmdFilterHandlerPair
 
 	commandQueueName string
-	commandChannel   <-chan amqp.Delivery
+	commandChannel   chan AcknowledgeableIncomingCommand
 	commandLogger    *slog.Logger
 
 	responseQueueName string
-	responseChannel   <-chan amqp.Delivery
+	responseChannel   chan AcknowledgeableIncomingResponse
 	responseLogger    *slog.Logger
 
-	topicSubscriptions   map[string]<-chan amqp.Delivery
+	topicSubscriptions   map[string]struct{}
 	topicMessageHandlers map[string][]tmhFilterHandlerPair
 
 	connectionClosedError chan *amqp.Error
@@ -120,10 +150,10 @@ type rabbitMQContext struct {
 
 var tracer = otel.Tracer("messaging-rmq")
 
-func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
+func (rmq *messagingContext) oncommand(cmd AcknowledgeableIncomingCommand) {
 	sublog := rmq.commandLogger
 
-	ctx := tracing.ExtractAMQPHeaders(context.Background(), cmd.Headers)
+	ctx := tracing.ExtractAMQPHeaders(context.Background(), cmd.Headers())
 	ctx, span := tracer.Start(ctx, rmq.commandQueueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
 
 	traceID := span.SpanContext().TraceID()
@@ -131,20 +161,18 @@ func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 		sublog = sublog.With(slog.String("traceID", traceID.String()))
 	}
 
-	sublog.Info("received command", "content-type", cmd.ContentType, "body", string(cmd.Body))
-
-	w := newAMQPDeliveryWrapper(rmq, cmd)
+	sublog.Info("received command", "content-type", cmd.ContentType, "body", string(cmd.Body()))
 
 	wg := sync.WaitGroup{}
 	matchingHandlers := 0
 
 	for _, handler := range rmq.commandHandlers {
-		if handler.wants(w) {
+		if handler.wants(cmd) {
 			wg.Add(1)
 			matchingHandlers++
 
 			go func(handle CommandHandler) {
-				handle(ctx, w, sublog)
+				handle(ctx, cmd, sublog)
 				wg.Done()
 			}(handler.fn)
 
@@ -167,8 +195,8 @@ func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 	}()
 }
 
-func (rmq *rabbitMQContext) onresponse(response *amqp.Delivery) {
-	ctx := tracing.ExtractAMQPHeaders(context.Background(), response.Headers)
+func (rmq *messagingContext) onresponse(response AcknowledgeableIncomingResponse) {
+	ctx := tracing.ExtractAMQPHeaders(context.Background(), response.Headers())
 	_, span := tracer.Start(ctx, rmq.responseQueueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
 
 	resplog := rmq.responseLogger
@@ -179,15 +207,15 @@ func (rmq *rabbitMQContext) onresponse(response *amqp.Delivery) {
 	}
 
 	// TODO: Ability to dispatch response to an application supplied response handler
-	resplog.Info("received response", "body", string(response.Body))
+	resplog.Info("received response", "body", string(response.Body()))
 	response.Ack(false)
 
 	span.End()
 }
 
-func (rmq *rabbitMQContext) onmessage(msg *amqp.Delivery, queueName, routingKey string, logger *slog.Logger) {
+func (rmq *messagingContext) onmessage(msg AcknowledgeableIncomingTopicMessage, queueName, routingKey string, logger *slog.Logger) {
 	sublog := logger
-	ctx := tracing.ExtractAMQPHeaders(context.Background(), msg.Headers)
+	ctx := tracing.ExtractAMQPHeaders(context.Background(), msg.Headers())
 	ctx, span := tracer.Start(ctx, queueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
 
 	traceID := span.SpanContext().TraceID()
@@ -196,16 +224,15 @@ func (rmq *rabbitMQContext) onmessage(msg *amqp.Delivery, queueName, routingKey 
 	}
 
 	handlers := rmq.topicMessageHandlers[routingKey]
-	w := newAMQPDeliveryWrapper(rmq, msg)
 
 	// Use a waitgroup to spawn a goroutine for each matching topic
 	// message handler and to be able to wait for their completion
 	wg := sync.WaitGroup{}
 	for _, handler := range handlers {
-		if handler.wants(w) {
+		if handler.wants(msg) {
 			wg.Add(1)
 			go func(handle TopicMessageHandler) {
-				handle(ctx, w, sublog)
+				handle(ctx, msg, sublog)
 				wg.Done()
 			}(handler.fn)
 		}
@@ -226,7 +253,7 @@ func (rmq *rabbitMQContext) onmessage(msg *amqp.Delivery, queueName, routingKey 
 	}()
 }
 
-func (rmq *rabbitMQContext) run() {
+func (rmq *messagingContext) run() {
 	// Increment the waitgroup and decrement on exit so that others can
 	// know if messages are being processed or not
 	rmq.wg.Add(1)
@@ -249,11 +276,11 @@ func (rmq *rabbitMQContext) run() {
 			}
 		case cmd := <-rmq.commandChannel:
 			{
-				rmq.oncommand(&cmd)
+				rmq.oncommand(cmd)
 			}
 		case response := <-rmq.responseChannel:
 			{
-				rmq.onresponse(&response)
+				rmq.onresponse(response)
 			}
 		case cce := <-rmq.connectionClosedError:
 			{
@@ -288,12 +315,12 @@ func seconds(s float64) time.Duration {
 
 // NoteToSelf enqueues a command to the same routing key as the calling service
 // which means that the sender or one of its replicas will receive the command
-func (rmq *rabbitMQContext) NoteToSelf(ctx context.Context, command Command) error {
+func (rmq *messagingContext) NoteToSelf(ctx context.Context, command Command) error {
 	return rmq.SendCommandTo(ctx, command, rmq.serviceName())
 }
 
 // SendCommandTo enqueues a command to the given routing key via the command exchange
-func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command Command, key string) error {
+func (rmq *messagingContext) SendCommandTo(ctx context.Context, command Command, key string) error {
 	var err error
 
 	ctx, span := tracer.Start(
@@ -336,7 +363,7 @@ func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command Command, 
 }
 
 // SendResponseTo enqueues a response to a given routing key via the command exchange
-func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response Response, key string) error {
+func (rmq *messagingContext) SendResponseTo(ctx context.Context, response Response, key string) error {
 	var err error
 
 	ctx, span := tracer.Start(
@@ -377,7 +404,7 @@ func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response Respons
 
 // PublishOnTopic takes a TopicMessage, reads its TopicName property,
 // and publishes it to the correct topic with the correct content type
-func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMessage) error {
+func (rmq *messagingContext) PublishOnTopic(ctx context.Context, message TopicMessage) error {
 	var err error
 
 	ctx, span := tracer.Start(
@@ -414,7 +441,7 @@ func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMes
 
 // Close is a wrapper method to close both the underlying AMQP
 // connection as well as the channel after shuttng down the messaging worker
-func (rmq *rabbitMQContext) Close() {
+func (rmq *messagingContext) Close() {
 	rmq.queue <- func() {
 		rmq.keepRunning.Store(false)
 	}
@@ -425,7 +452,7 @@ func (rmq *rabbitMQContext) Close() {
 	rmq.connection.Close()
 }
 
-func (rmq *rabbitMQContext) Start() {
+func (rmq *messagingContext) Start() {
 	go rmq.run()
 }
 
@@ -434,7 +461,7 @@ type CommandHandler func(context.Context, IncomingCommand, *slog.Logger) error
 
 // RegisterCommandHandler registers a handler to be called when a command that matches
 // the specified filter is received
-func (rmq *rabbitMQContext) RegisterCommandHandler(filter MessageFilter, handler CommandHandler) error {
+func (rmq *messagingContext) RegisterCommandHandler(filter MessageFilter, handler CommandHandler) error {
 
 	completion := make(chan error, 1)
 
@@ -457,7 +484,7 @@ func (rmq *rabbitMQContext) RegisterCommandHandler(filter MessageFilter, handler
 	return err
 }
 
-func (rmq *rabbitMQContext) serviceName() string {
+func (rmq *messagingContext) serviceName() string {
 	return rmq.cfg.ServiceName
 }
 
@@ -559,14 +586,14 @@ func Initialize(ctx context.Context, cfg Config) (MsgContext, error) {
 
 func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 	var connClosedError = make(chan *amqp.Error)
-	var msgctx *rabbitMQContext
+	var msgctx *messagingContext
 	var err error
 
 	for {
 
 		time.Sleep(2 * time.Second)
 
-		msgctx, err = createMessageQueueChannel(ctx, &rabbitMQContext{
+		msgctx, err = createMessageQueueChannel(ctx, &messagingContext{
 			cfg:                   cfg,
 			connectionClosedError: connClosedError,
 		})
@@ -590,7 +617,7 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 		msgctx.queue = make(chan action, 32)
 		msgctx.keepRunning = &atomic.Bool{}
 		msgctx.topicMessageHandlers = map[string][]tmhFilterHandlerPair{}
-		msgctx.topicSubscriptions = map[string]<-chan amqp.Delivery{}
+		msgctx.topicSubscriptions = map[string]struct{}{}
 
 		initComplete <- msgctx
 		break
@@ -626,11 +653,11 @@ func MatchContentType(contentType string) MessageFilter {
 // to the topic exchange with the provided routing key, starts a consumer
 // for that queue and hands off any received messages to the provided
 // TopicMessageHandler
-func (msgctx *rabbitMQContext) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) error {
+func (msgctx *messagingContext) RegisterTopicMessageHandler(routingKey string, handler TopicMessageHandler) error {
 	return msgctx.RegisterTopicMessageHandlerWithFilter(routingKey, handler, func(Message) bool { return true })
 }
 
-func (msgctx *rabbitMQContext) RegisterTopicMessageHandlerWithFilter(routingKey string, handler TopicMessageHandler, filter MessageFilter) error {
+func (msgctx *messagingContext) RegisterTopicMessageHandlerWithFilter(routingKey string, handler TopicMessageHandler, filter MessageFilter) error {
 
 	completion := make(chan error, 1)
 
@@ -655,7 +682,7 @@ func (msgctx *rabbitMQContext) RegisterTopicMessageHandlerWithFilter(routingKey 
 	return err
 }
 
-func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete chan error) {
+func registerTMH(msgctx *messagingContext, routingKey string, registerComplete chan error) {
 
 	// Do not create more than one listener queue and consumer per routing key
 	if _, exists := msgctx.topicSubscriptions[routingKey]; exists {
@@ -712,8 +739,9 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 
 	logger.Info("successfully registered as a consumer")
 
-	// Save this channel so that we know that we are already registered with this routing key
-	msgctx.topicSubscriptions[routingKey] = messagesFromQueue
+	// Save a token for this routing key, so that we know that we are already
+	// registered with a listener for it
+	msgctx.topicSubscriptions[routingKey] = struct{}{}
 
 	go func() {
 		for msg := range messagesFromQueue {
@@ -721,7 +749,8 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 			msgHandled := make(chan struct{}, 1)
 
 			msgctx.queue <- func() {
-				msgctx.onmessage(&msg, queue.Name, routingKey, logger)
+				wrapper := newAMQPDeliveryWrapper(msgctx, &msg)
+				msgctx.onmessage(wrapper, queue.Name, routingKey, logger)
 				msgHandled <- struct{}{}
 			}
 
@@ -733,114 +762,4 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 	}()
 
 	registerComplete <- nil
-}
-
-func createMessageQueueChannel(ctx context.Context, msgctx *rabbitMQContext) (*rabbitMQContext, error) {
-	connectionString := fmt.Sprintf(
-		"amqp://%s:%s@%s:%d/%s",
-		msgctx.cfg.User, msgctx.cfg.Password, msgctx.cfg.Host, msgctx.cfg.Port,
-		strings.TrimPrefix(msgctx.cfg.VirtualHost, "/"),
-	)
-
-	conn, err := amqp.Dial(connectionString)
-	if err != nil {
-		return nil, fmt.Errorf("unable to connect to message queue: (%w)", err)
-	}
-
-	amqpChannel, err := conn.Channel()
-
-	if err != nil {
-		return nil, fmt.Errorf("unable to create an amqp channel to message queue: (%w)", err)
-	}
-
-	msgctx.connection = conn
-	msgctx.connection.NotifyClose(msgctx.connectionClosedError)
-	msgctx.channel = amqpChannel
-
-	return msgctx, nil
-}
-
-func createCommandExchange(ctx context.Context, msgctx *rabbitMQContext) error {
-	err := msgctx.channel.ExchangeDeclare(commandExchange, amqp.ExchangeDirect, false, false, false, false, nil)
-
-	if err != nil {
-		return fmt.Errorf("unable to declare command exchange %s: (%w)", commandExchange, err)
-	}
-
-	return nil
-}
-
-func createTopicExchange(ctx context.Context, msgctx *rabbitMQContext) error {
-	err := msgctx.channel.ExchangeDeclare(topicExchange, amqp.ExchangeTopic, false, false, false, false, nil)
-
-	if err != nil {
-		return fmt.Errorf("unable to declare topic exchange %s: (%w)", topicExchange, err)
-	}
-
-	return nil
-}
-
-func createCommandAndResponseQueues(ctx context.Context, msgctx *rabbitMQContext) error {
-	err := createCommandExchange(ctx, msgctx)
-	if err != nil {
-		return err
-	}
-
-	serviceName := msgctx.serviceName()
-
-	commandQueue, err := msgctx.channel.QueueDeclare(serviceName, false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to declare command queue for %s: (%w)", serviceName, err)
-	}
-
-	cmdlog := msgctx.cfg.logger.With(slog.String("queue", commandQueue.Name))
-	cmdlog.Info("declared command queue")
-
-	err = msgctx.channel.QueueBind(commandQueue.Name, serviceName, commandExchange, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to bind command queue %s to exchange %s: (%w)", commandQueue.Name, commandExchange, err)
-	}
-
-	cmdlog.Info("bound command queue to command exchange")
-
-	responseQueue, err := msgctx.channel.QueueDeclare("", false, true, true, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to declare response queue for %s: (%w)", serviceName, err)
-	}
-
-	resplog := msgctx.cfg.logger.With(slog.String("queue", responseQueue.Name))
-	resplog.Info("declared response queue")
-
-	err = msgctx.channel.QueueBind(responseQueue.Name, responseQueue.Name, commandExchange, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to bind response queue %s to exchange %s: (%w)", responseQueue.Name, commandExchange, err)
-	}
-
-	resplog.Info("bound response queue to command exchange")
-
-	msgctx.commandQueueName = commandQueue.Name
-	msgctx.commandChannel, err = msgctx.channel.Consume(commandQueue.Name, "command-consumer", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("unable to start consuming commands from %s: (%w)", commandQueue.Name, err)
-	}
-
-	msgctx.commandLogger = cmdlog
-	msgctx.responseLogger = resplog
-
-	msgctx.responseQueueName = responseQueue.Name
-	msgctx.responseChannel, err = msgctx.channel.Consume(responseQueue.Name, "response-consumer", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("unable to start consuming responses from %s: (%w)", responseQueue.Name, err)
-	}
-
-	go func() {
-		msgctx.RegisterCommandHandler(MatchContentType(PingCommandContentType), NewPingCommandHandler(msgctx))
-
-		err := msgctx.NoteToSelf(context.Background(), NewPingCommand())
-		if err != nil {
-			cmdlog.Error("failed to publish a ping command to ourselves!", "err", err.Error())
-		}
-	}()
-
-	return nil
 }
