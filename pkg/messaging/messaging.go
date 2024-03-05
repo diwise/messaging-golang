@@ -310,7 +310,7 @@ func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command Command, 
 	// Enqueue this action on the command queue
 	rmq.queue <- func() {
 		// Send the publish response to the completion channel
-		completion <- rmq.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
+		completion <- rmq.channel.PublishWithContext(ctx, commandExchange, key, true, false, amqp.Publishing{
 			Headers:     tracing.InjectAMQPHeaders(ctx),
 			ContentType: command.ContentType(),
 			ReplyTo:     rmq.responseQueueName,
@@ -351,7 +351,7 @@ func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response Respons
 	completion := make(chan error, 1)
 
 	rmq.queue <- func() {
-		completion <- rmq.channel.Publish(commandExchange, key, true, false, amqp.Publishing{
+		completion <- rmq.channel.PublishWithContext(ctx, commandExchange, key, true, false, amqp.Publishing{
 			Headers:     tracing.InjectAMQPHeaders(ctx),
 			ContentType: response.ContentType(),
 			Body:        response.Body(),
@@ -392,7 +392,7 @@ func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMes
 	completion := make(chan error, 1)
 
 	rmq.queue <- func() {
-		completion <- rmq.channel.Publish(topicExchange, message.TopicName(), false, false,
+		completion <- rmq.channel.PublishWithContext(ctx, topicExchange, message.TopicName(), false, false,
 			amqp.Publishing{
 				Headers:     tracing.InjectAMQPHeaders(ctx),
 				ContentType: message.ContentType(),
@@ -641,7 +641,7 @@ func (msgctx *rabbitMQContext) RegisterTopicMessageHandlerWithFilter(routingKey 
 
 	// Wait until the action has been processed (message handler registered)
 	var tmo error
-	err, tmo := waitOnChannel(completion, seconds(5.0))
+	err, tmo := waitOnChannel(completion, seconds(25.0))
 
 	if tmo != nil {
 		msg := fmt.Sprintf("failed to register topic message handler: %s", tmo.Error())
