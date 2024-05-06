@@ -534,7 +534,9 @@ func Initialize(ctx context.Context, cfg Config) (MsgContext, error) {
 
 	if cfg.Host == "" {
 		cfg.logger.Info("host name empty, returning mocked context instead.")
-		return &MsgContextMock{}, nil
+		m := &MsgContextMock{}
+		m.StartFunc = func() {}
+		return m, nil
 	}
 
 	if cfg.initTimeout != 0 {
