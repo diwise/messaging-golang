@@ -534,9 +534,17 @@ func Initialize(ctx context.Context, cfg Config) (MsgContext, error) {
 
 	if cfg.Host == "" {
 		cfg.logger.Info("host name empty, returning mocked context instead.")
-		m := &MsgContextMock{}
-		m.StartFunc = func() {}
-		return m, nil
+		return &MsgContextMock{
+			CloseFunc:                                 func() {},
+			NoteToSelfFunc:                            func(ctx context.Context, command Command) error { return nil },
+			PublishOnTopicFunc:                        func(ctx context.Context, message TopicMessage) error { return nil },
+			RegisterCommandHandlerFunc:                func(filter MessageFilter, handler CommandHandler) error { return nil },
+			RegisterTopicMessageHandlerFunc:           func(routingKey string, handler TopicMessageHandler) error { return nil },
+			RegisterTopicMessageHandlerWithFilterFunc: func(routingKey string, handler TopicMessageHandler, filter MessageFilter) error { return nil },
+			SendCommandToFunc:                         func(ctx context.Context, command Command, key string) error { return nil },
+			SendResponseToFunc:                        func(ctx context.Context, response Response, key string) error { return nil },
+			StartFunc:                                 func() {},
+		}, nil
 	}
 
 	if cfg.initTimeout != 0 {
