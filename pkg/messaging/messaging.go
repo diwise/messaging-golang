@@ -277,15 +277,17 @@ func (rmq *rabbitMQContext) run() {
 
 // waitOnChannel is a helper method that waits on a completion channel
 // with a configurable timeout
-func waitOnChannel(ch chan error, timeout time.Duration) (error, error) {
+func waitOnChannel[T any](ch <-chan T, timeout time.Duration) (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	var empty T
 
 	select {
 	case result := <-ch:
 		return result, nil
 	case <-ctx.Done():
-		return nil, context.Cause(ctx)
+		return empty, context.Cause(ctx)
 	}
 }
 
@@ -334,6 +336,7 @@ func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command Command, 
 	// Wait until the action has been processed (command has been sent)
 	var tmo error
 	if err, tmo = waitOnChannel(completion, seconds(5.0)); tmo != nil {
+		err = tmo
 		return tmo
 	}
 
@@ -376,6 +379,7 @@ func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response Respons
 	// Wait until the action has been processed (response has been sent)
 	var tmo error
 	if err, tmo = waitOnChannel(completion, seconds(5.0)); tmo != nil {
+		err = tmo
 		return tmo
 	}
 
@@ -420,6 +424,7 @@ func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMes
 	// Wait until the action has been processed (topic message has been sent)
 	var tmo error
 	if err, tmo = waitOnChannel(completion, seconds(5.0)); tmo != nil {
+		err = tmo
 		return tmo
 	}
 
@@ -450,7 +455,7 @@ type CommandHandler func(context.Context, IncomingCommand, *slog.Logger) error
 // the specified filter is received
 func (rmq *rabbitMQContext) RegisterCommandHandler(filter MessageFilter, handler CommandHandler) error {
 
-	completion := make(chan error, 1)
+	completion := make(chan struct{}, 1)
 
 	rmq.queue <- func() {
 		defer close(completion)
@@ -463,12 +468,12 @@ func (rmq *rabbitMQContext) RegisterCommandHandler(filter MessageFilter, handler
 	}
 
 	// Wait until the action has been processed (handler has been registered)
-	err, tmo := waitOnChannel(completion, seconds(5.0))
+	_, tmo := waitOnChannel(completion, seconds(5.0))
 	if tmo != nil {
 		return tmo
 	}
 
-	return err
+	return nil
 }
 
 func (rmq *rabbitMQContext) serviceName() string {
@@ -528,7 +533,7 @@ func LoadConfiguration(ctx context.Context, serviceName string, log *slog.Logger
 			VirtualHost: rabbitMQTenant,
 			User:        rabbitMQUser,
 			Password:    rabbitMQPass,
-			initTimeout: time.Duration(timeout),
+			initTimeout: time.Duration(timeout) * time.Second,
 			logger:      log,
 		}
 	}
@@ -564,21 +569,14 @@ func Initialize(ctx context.Context, cfg Config) (MsgContext, error) {
 		}, nil
 	}
 
-	if cfg.initTimeout != 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, cfg.initTimeout*time.Second)
-		defer cancel()
-	}
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, cfg.initTimeout)
+	defer cancel()
 
 	initComplete := make(chan MsgContext, 1)
 	go do_init(ctx, cfg, initComplete)
 
-	select {
-	case msgctx := <-initComplete:
-		return msgctx, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	return waitOnChannel(initComplete, cfg.initTimeout)
 }
 
 func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
@@ -586,7 +584,7 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 	var msgctx *rabbitMQContext
 	var err error
 
-	for {
+	for context.Cause(ctx) == nil {
 
 		time.Sleep(2 * time.Second)
 
@@ -665,7 +663,7 @@ func (msgctx *rabbitMQContext) RegisterTopicMessageHandlerWithFilter(routingKey 
 			msgctx.topicMessageHandlers[routingKey],
 			tmhFilterHandlerPair{filter, handler},
 		)
-		registerTMH(msgctx, routingKey, completion)
+		completion <- registerTMH(msgctx, routingKey)
 	}
 
 	// Wait until the action has been processed (message handler registered)
@@ -681,12 +679,11 @@ func (msgctx *rabbitMQContext) RegisterTopicMessageHandlerWithFilter(routingKey 
 	return err
 }
 
-func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete chan error) {
+func registerTMH(msgctx *rabbitMQContext, routingKey string) error {
 
 	// Do not create more than one listener queue and consumer per routing key
 	if _, exists := msgctx.topicSubscriptions[routingKey]; exists {
-		registerComplete <- nil
-		return
+		return nil
 	}
 
 	queue, err := msgctx.channel.QueueDeclare(
@@ -698,8 +695,7 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 		nil,   //arguments
 	)
 	if err != nil {
-		registerComplete <- fmt.Errorf("failed to declare a queue: (%w)", err)
-		return
+		return fmt.Errorf("failed to declare a queue: (%w)", err)
 	}
 
 	logger := msgctx.cfg.logger.With(
@@ -717,8 +713,7 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 		nil,
 	)
 	if err != nil {
-		registerComplete <- fmt.Errorf("failed to bind to queue %s: (%w)", queue.Name, err)
-		return
+		return fmt.Errorf("failed to bind to queue %s: (%w)", queue.Name, err)
 	}
 
 	logger.Info("successfully bound to queue")
@@ -733,8 +728,7 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 		nil,        //args
 	)
 	if err != nil {
-		registerComplete <- fmt.Errorf("failed to register a consumer with queue %s: (%w)", queue.Name, err)
-		return
+		return fmt.Errorf("failed to register a consumer with queue %s: (%w)", queue.Name, err)
 	}
 
 	logger.Info("successfully registered as a consumer")
@@ -759,7 +753,7 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 		os.Exit(1)
 	}()
 
-	registerComplete <- nil
+	return nil
 }
 
 func createMessageQueueChannel(_ context.Context, msgctx *rabbitMQContext) (*rabbitMQContext, error) {
