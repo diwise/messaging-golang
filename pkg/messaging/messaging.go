@@ -122,6 +122,7 @@ var tracer = otel.Tracer("messaging-rmq")
 
 func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 	sublog := rmq.commandLogger
+	defer cmd.Ack(false)
 
 	ctx := tracing.ExtractAMQPHeaders(context.Background(), cmd.Headers)
 	ctx, span := tracer.Start(ctx, rmq.commandQueueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
@@ -135,7 +136,7 @@ func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 
 	w := newAMQPDeliveryWrapper(rmq, cmd)
 
-	wg := sync.WaitGroup{}
+	var wg sync.WaitGroup
 	matchingHandlers := 0
 
 	for _, handler := range rmq.commandHandlers {
@@ -144,8 +145,15 @@ func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 			matchingHandlers++
 
 			go func(handle CommandHandler) {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						sublog.Error("command handler paniced", "panic", r)
+					}
+				}()
+
 				handle(ctx, w, sublog)
-				wg.Done()
+
 			}(handler.fn)
 
 			// allow at most one handler to receive each command
@@ -164,13 +172,14 @@ func (rmq *rabbitMQContext) oncommand(cmd *amqp.Delivery) {
 
 		span.End()
 	}()
-
-	cmd.Ack(false)
 }
 
 func (rmq *rabbitMQContext) onresponse(response *amqp.Delivery) {
 	ctx := tracing.ExtractAMQPHeaders(context.Background(), response.Headers)
 	_, span := tracer.Start(ctx, rmq.responseQueueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+
+	defer span.End()
+	defer response.Ack(false)
 
 	resplog := rmq.responseLogger
 
@@ -181,15 +190,13 @@ func (rmq *rabbitMQContext) onresponse(response *amqp.Delivery) {
 
 	// TODO: Ability to dispatch response to an application supplied response handler
 	resplog.Info("received response", "body", string(response.Body))
-	response.Ack(false)
-
-	span.End()
 }
 
 func (rmq *rabbitMQContext) onmessage(msg *amqp.Delivery, queueName, routingKey string, logger *slog.Logger) {
 	sublog := logger
 	ctx := tracing.ExtractAMQPHeaders(context.Background(), msg.Headers)
 	ctx, span := tracer.Start(ctx, queueName+" receive", trace.WithSpanKind(trace.SpanKindConsumer))
+	defer msg.Ack(false)
 
 	traceID := span.SpanContext().TraceID()
 	if traceID.IsValid() {
@@ -201,13 +208,19 @@ func (rmq *rabbitMQContext) onmessage(msg *amqp.Delivery, queueName, routingKey 
 
 	// Use a waitgroup to spawn a goroutine for each matching topic
 	// message handler and to be able to wait for their completion
-	wg := sync.WaitGroup{}
+	var wg sync.WaitGroup
 	for _, handler := range handlers {
 		if handler.wants(w) {
 			wg.Add(1)
 			go func(handle TopicMessageHandler) {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						sublog.Error("topic message handler paniced", "panic", r)
+					}
+				}()
+
 				handle(ctx, w, sublog)
-				wg.Done()
 			}(handler.fn)
 		}
 	}
@@ -219,8 +232,6 @@ func (rmq *rabbitMQContext) onmessage(msg *amqp.Delivery, queueName, routingKey 
 
 		span.End()
 	}()
-
-	msg.Ack(false)
 }
 
 func (rmq *rabbitMQContext) run() {
@@ -266,15 +277,17 @@ func (rmq *rabbitMQContext) run() {
 
 // waitOnChannel is a helper method that waits on a completion channel
 // with a configurable timeout
-func waitOnChannel(ch chan error, timeout time.Duration) (error, error) {
+func waitOnChannel[T any](ch <-chan T, timeout time.Duration) (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	var empty T
 
 	select {
 	case result := <-ch:
 		return result, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return empty, context.Cause(ctx)
 	}
 }
 
@@ -309,6 +322,8 @@ func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command Command, 
 
 	// Enqueue this action on the command queue
 	rmq.queue <- func() {
+		defer close(completion)
+
 		// Send the publish response to the completion channel
 		completion <- rmq.channel.PublishWithContext(ctx, commandExchange, key, true, false, amqp.Publishing{
 			Headers:     tracing.InjectAMQPHeaders(ctx),
@@ -321,6 +336,7 @@ func (rmq *rabbitMQContext) SendCommandTo(ctx context.Context, command Command, 
 	// Wait until the action has been processed (command has been sent)
 	var tmo error
 	if err, tmo = waitOnChannel(completion, seconds(5.0)); tmo != nil {
+		err = tmo
 		return tmo
 	}
 
@@ -351,6 +367,8 @@ func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response Respons
 	completion := make(chan error, 1)
 
 	rmq.queue <- func() {
+		defer close(completion)
+
 		completion <- rmq.channel.PublishWithContext(ctx, commandExchange, key, true, false, amqp.Publishing{
 			Headers:     tracing.InjectAMQPHeaders(ctx),
 			ContentType: response.ContentType(),
@@ -361,6 +379,7 @@ func (rmq *rabbitMQContext) SendResponseTo(ctx context.Context, response Respons
 	// Wait until the action has been processed (response has been sent)
 	var tmo error
 	if err, tmo = waitOnChannel(completion, seconds(5.0)); tmo != nil {
+		err = tmo
 		return tmo
 	}
 
@@ -392,6 +411,8 @@ func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMes
 	completion := make(chan error, 1)
 
 	rmq.queue <- func() {
+		defer close(completion)
+
 		completion <- rmq.channel.PublishWithContext(ctx, topicExchange, message.TopicName(), false, false,
 			amqp.Publishing{
 				Headers:     tracing.InjectAMQPHeaders(ctx),
@@ -403,6 +424,7 @@ func (rmq *rabbitMQContext) PublishOnTopic(ctx context.Context, message TopicMes
 	// Wait until the action has been processed (topic message has been sent)
 	var tmo error
 	if err, tmo = waitOnChannel(completion, seconds(5.0)); tmo != nil {
+		err = tmo
 		return tmo
 	}
 
@@ -433,25 +455,25 @@ type CommandHandler func(context.Context, IncomingCommand, *slog.Logger) error
 // the specified filter is received
 func (rmq *rabbitMQContext) RegisterCommandHandler(filter MessageFilter, handler CommandHandler) error {
 
-	completion := make(chan error, 1)
+	completion := make(chan struct{}, 1)
 
 	rmq.queue <- func() {
+		defer close(completion)
+
 		if rmq.commandHandlers == nil {
 			rmq.commandHandlers = []cmdFilterHandlerPair{}
 		}
 
 		rmq.commandHandlers = append(rmq.commandHandlers, cmdFilterHandlerPair{filter, handler})
-
-		completion <- nil
 	}
 
 	// Wait until the action has been processed (handler has been registered)
-	err, tmo := waitOnChannel(completion, seconds(5.0))
+	_, tmo := waitOnChannel(completion, seconds(5.0))
 	if tmo != nil {
 		return tmo
 	}
 
-	return err
+	return nil
 }
 
 func (rmq *rabbitMQContext) serviceName() string {
@@ -511,7 +533,7 @@ func LoadConfiguration(ctx context.Context, serviceName string, log *slog.Logger
 			VirtualHost: rabbitMQTenant,
 			User:        rabbitMQUser,
 			Password:    rabbitMQPass,
-			initTimeout: time.Duration(timeout),
+			initTimeout: time.Duration(timeout) * time.Second,
 			logger:      log,
 		}
 	}
@@ -547,21 +569,14 @@ func Initialize(ctx context.Context, cfg Config) (MsgContext, error) {
 		}, nil
 	}
 
-	if cfg.initTimeout != 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, cfg.initTimeout*time.Second)
-		defer cancel()
-	}
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, cfg.initTimeout)
+	defer cancel()
 
 	initComplete := make(chan MsgContext, 1)
 	go do_init(ctx, cfg, initComplete)
 
-	select {
-	case msgctx := <-initComplete:
-		return msgctx, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	return waitOnChannel(initComplete, cfg.initTimeout)
 }
 
 func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
@@ -569,7 +584,7 @@ func do_init(ctx context.Context, cfg Config, initComplete chan MsgContext) {
 	var msgctx *rabbitMQContext
 	var err error
 
-	for {
+	for context.Cause(ctx) == nil {
 
 		time.Sleep(2 * time.Second)
 
@@ -642,11 +657,13 @@ func (msgctx *rabbitMQContext) RegisterTopicMessageHandlerWithFilter(routingKey 
 	completion := make(chan error, 1)
 
 	msgctx.queue <- func() {
+		defer close(completion)
+
 		msgctx.topicMessageHandlers[routingKey] = append(
 			msgctx.topicMessageHandlers[routingKey],
 			tmhFilterHandlerPair{filter, handler},
 		)
-		registerTMH(msgctx, routingKey, completion)
+		completion <- registerTMH(msgctx, routingKey)
 	}
 
 	// Wait until the action has been processed (message handler registered)
@@ -662,11 +679,11 @@ func (msgctx *rabbitMQContext) RegisterTopicMessageHandlerWithFilter(routingKey 
 	return err
 }
 
-func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete chan error) {
+func registerTMH(msgctx *rabbitMQContext, routingKey string) error {
 
 	// Do not create more than one listener queue and consumer per routing key
 	if _, exists := msgctx.topicSubscriptions[routingKey]; exists {
-		registerComplete <- nil
+		return nil
 	}
 
 	queue, err := msgctx.channel.QueueDeclare(
@@ -678,8 +695,7 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 		nil,   //arguments
 	)
 	if err != nil {
-		registerComplete <- fmt.Errorf("failed to declare a queue: (%w)", err)
-		return
+		return fmt.Errorf("failed to declare a queue: (%w)", err)
 	}
 
 	logger := msgctx.cfg.logger.With(
@@ -697,8 +713,7 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 		nil,
 	)
 	if err != nil {
-		registerComplete <- fmt.Errorf("failed to bind to queue %s: (%w)", queue.Name, err)
-		return
+		return fmt.Errorf("failed to bind to queue %s: (%w)", queue.Name, err)
 	}
 
 	logger.Info("successfully bound to queue")
@@ -713,8 +728,7 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 		nil,        //args
 	)
 	if err != nil {
-		registerComplete <- fmt.Errorf("failed to register a consumer with queue %s: (%w)", queue.Name, err)
-		return
+		return fmt.Errorf("failed to register a consumer with queue %s: (%w)", queue.Name, err)
 	}
 
 	logger.Info("successfully registered as a consumer")
@@ -728,8 +742,8 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 			msgHandled := make(chan struct{}, 1)
 
 			msgctx.queue <- func() {
+				defer close(msgHandled)
 				msgctx.onmessage(&msg, queue.Name, routingKey, logger)
-				msgHandled <- struct{}{}
 			}
 
 			<-msgHandled
@@ -739,10 +753,10 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string, registerComplete ch
 		os.Exit(1)
 	}()
 
-	registerComplete <- nil
+	return nil
 }
 
-func createMessageQueueChannel(ctx context.Context, msgctx *rabbitMQContext) (*rabbitMQContext, error) {
+func createMessageQueueChannel(_ context.Context, msgctx *rabbitMQContext) (*rabbitMQContext, error) {
 	connectionString := fmt.Sprintf(
 		"amqp://%s:%s@%s:%d/%s",
 		msgctx.cfg.User, msgctx.cfg.Password, msgctx.cfg.Host, msgctx.cfg.Port,
@@ -767,7 +781,7 @@ func createMessageQueueChannel(ctx context.Context, msgctx *rabbitMQContext) (*r
 	return msgctx, nil
 }
 
-func createCommandExchange(ctx context.Context, msgctx *rabbitMQContext) error {
+func createCommandExchange(_ context.Context, msgctx *rabbitMQContext) error {
 	err := msgctx.channel.ExchangeDeclare(commandExchange, amqp.ExchangeDirect, false, false, false, false, nil)
 
 	if err != nil {
@@ -777,7 +791,7 @@ func createCommandExchange(ctx context.Context, msgctx *rabbitMQContext) error {
 	return nil
 }
 
-func createTopicExchange(ctx context.Context, msgctx *rabbitMQContext) error {
+func createTopicExchange(_ context.Context, msgctx *rabbitMQContext) error {
 	err := msgctx.channel.ExchangeDeclare(topicExchange, amqp.ExchangeTopic, false, false, false, false, nil)
 
 	if err != nil {
