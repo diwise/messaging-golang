@@ -555,7 +555,7 @@ func LoadConfiguration(ctx context.Context, serviceName string, log *slog.Logger
 func Initialize(ctx context.Context, cfg Config) (MsgContext, error) {
 
 	if cfg.Host == "" {
-		cfg.logger.Info("host name empty, returning mocked context instead.")
+		cfg.logger.Warn("host name empty, returning mocked context instead.")
 		return &MsgContextMock{
 			CloseFunc:                                 func() {},
 			NoteToSelfFunc:                            func(ctx context.Context, command Command) error { return nil },
@@ -750,7 +750,6 @@ func registerTMH(msgctx *rabbitMQContext, routingKey string) error {
 		}
 
 		logger.Error("topic message queue was closed")
-		os.Exit(1)
 	}()
 
 	return nil
